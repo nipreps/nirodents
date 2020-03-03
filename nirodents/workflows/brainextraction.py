@@ -48,7 +48,15 @@ def init_brain_extraction_wf(
     template_spec=None,
     use_float=True,
 ):
-
+    """
+    Build an atlas-based brain extraction pipeline for rodent T1w and T2w MRI data.
+    
+    Parameters
+    ----------
+    atropos_refine : :obj:`bool`, optional
+        Run an extra step to refine the brain mask using a brain-tissue segmentation with Atropos.
+     
+     """"
     wf = pe.Workflow(name)
 
     if omp_nthreads is None or omp_nthreads < 1:
@@ -60,10 +68,8 @@ def init_brain_extraction_wf(
     # outputnode = pe.Node(niu.IdentityInterface(
     #     fields=['out_file', 'out_mask']), name='outputnode')
 
-    ### needs editing for local template/templateFlow ###
-    tpl_path = '/Users/eilidhmacnicol/projects/nanData/templateFlow/tpl-WHS'
-    tpl_target_path = os.path.join(tpl_path, 'tpl-WHS_res-02_T2star.nii.gz')
-    tpl_regmask_path = os.path.join(tpl_path, 'tpl-WHS_res-02_desc-brain_mask.nii.gz')
+    tpl_target_path = get_template(in_template, resolution=debug + 1, suffix=tpl_suffix)
+    tpl_regmask_path = get_template(in_template, resolution=debug + 1, desc='brain', suffix='mask')
     if tpl_regmask_path:
         inputnode.inputs.in_mask = str(tpl_regmask_path)
     tpl_TissueLabelImage = os.path.join(tpl_path, 'tpl-WHS_desc-Cerebrum2TissueLabels_dseg.nii.gz')
@@ -75,8 +81,9 @@ def init_brain_extraction_wf(
     dil_mask.inputs.fill_holes = True
 
     # truncate target intensity for N4 correction
-    trunc = pe.MapNode(ImageMath(operation='TruncateImageIntensity', op2='0.01 0.999 256'), #for T2
-                        name='truncate_images', iterfield=['op1']) #For T1 op2='0.005 0.999'),
+    trunc_opts = {"T1w": "0.005 0.999 256", "T2w": "0.01 0.999 256"}
+    trunc = pe.MapNode(ImageMath(operation='TruncateImageIntensity', op2=trunc_opts[bids_suffix]),
+                        name='truncate_images', iterfield=['op1'])
 
     # Initial N4 correction
     inu_n4 = pe.MapNode(
@@ -135,9 +142,9 @@ def init_brain_extraction_wf(
         moving_mask_trait += 's'
 
     # Set up initial spatial normalization
-    init_settings_file = 'ratantsBrainExtraction_%s.json'
+    init_settings_file = 'brainextraction_%s.json'
     init_norm = pe.Node(Registration(from_file=pkgr_fn(
-        'niworkflows.data', init_settings_file % init_normalization_quality)),
+        'nirodents.data', init_settings_file % init_normalization_quality)),
         name='init_norm',
         n_procs=omp_nthreads,
         mem_gb=mem_gb)
@@ -172,9 +179,9 @@ N4BiasFieldCorrection.""" % _ants_version, DeprecationWarning)
     skullstrip_tpl = pe.Node(ApplyMask(in_file = tpl_target_path), name = 'skullstrip_tpl')
 
     # Normalise skull-stripped image to brain template
-    final_settings_file = 'ratantsBrainExtraction_%s.json'
+    final_settings_file = 'brainextraction_%s.json'
     final_norm = pe.Node(Registration(from_file=pkgr_fn(
-        'niworkflows.data', final_settings_file % final_normalization_quality)),
+        'nirodents.data', final_settings_file % final_normalization_quality)),
         name='final_norm',
         n_procs=omp_nthreads,
         mem_gb=mem_gb)
