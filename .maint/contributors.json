@@ -4,5 +4,17 @@
     "name": "Poldrack, Russell A.",
     "orcid": "0000-0001-6755-0259",
     "type": "Researcher"
+  },
+  {
+    "affiliation": "Department of Neuroimaging, King's College London",
+    "name": "Cash, Diana",
+    "orcid": "0000-0001-5021-1234",
+    "type": "Researcher"
+  },
+  {
+    "affiliation": "Department of Neuroimaging, King's College London",
+    "name": "Kim, Eugene",
+    "orcid": "0000-0003-0066-7051",
+    "type": "Researcher"
   }
 ]
