@@ -50,13 +50,13 @@ def init_brain_extraction_wf(
 ):
     """
     Build an atlas-based brain extraction pipeline for rodent T1w and T2w MRI data.
-    
+
     Parameters
     ----------
     atropos_refine : :obj:`bool`, optional
         Run an extra step to refine the brain mask using a brain-tissue segmentation with Atropos.
-     
-     """"
+
+    """
     wf = pe.Workflow(name)
 
     if omp_nthreads is None or omp_nthreads < 1:
