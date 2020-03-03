@@ -1,0 +1,34 @@
+{
+  "title": "NeuroImaging Rodents (NiRodents): processing tools for magnetic resonance images of the rodent brain",
+  "description": "<p>A collection of Nipype interfaces, patches and workflows for reuse in NiPreps (NeuroImaging PREProcesssing tools) such as fMRIPrep.</p>",
+  "creators": [
+    {
+      "affiliation": "",
+      "name": "MacNicol, Eilidh",
+      "orcid": ""
+    },
+    {
+      "affiliation": "Department of Psychology, Stanford University",
+      "name": "Esteban, Oscar",
+      "orcid": "0000-0001-8435-6191"
+    }
+  ],
+  "contributors": [
+    {
+      "affiliation": "Department of Psychology, Stanford University",
+      "name": "Poldrack, Russell A.",
+      "orcid": "0000-0001-6755-0259",
+      "type": "Researcher"
+    }
+  ],
+  "keywords": [
+    "neuroimaging",
+    "workflow",
+    "pipeline",
+    "preprocessing",
+    "MRI",
+    "BIDS"
+  ],
+  "license": "Apache-2.0",
+  "upload_type": "software"
+}
