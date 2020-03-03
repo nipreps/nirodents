@@ -33,19 +33,21 @@ from niworkflows.interfaces.fixes import (
 from niworkflows.interfaces.utils import CopyXForm
 from niworkflows.interfaces.nibabel import Binarize
 
-def init_brain_extraction_wf(name='brain_extraction_wf',
-                             in_template='WHS',
-                             template_spec=None,
-                             use_float=True,
-                             init_normalization_quality = 'threestage',
-                             final_normalization_quality = 'precise',
-                             omp_nthreads=None,
-                             mem_gb=3.0,
-                             bids_suffix='T1w',
-                             atropos_refine=True,
-                             atropos_use_random_seed=True,
-                             atropos_model=None,
-                             bspline_fitting_distance=8): #4
+def init_brain_extraction_wf(
+    atropos_model=None,
+    atropos_refine=True,
+    atropos_use_random_seed=True,
+    bids_suffix='T1w',
+    bspline_fitting_distance=8,  # 4
+    final_normalization_quality='precise',
+    in_template='WHS',
+    init_normalization_quality='threestage',
+    mem_gb=3.0,
+    name='brain_extraction_wf',
+    omp_nthreads=None,
+    template_spec=None,
+    use_float=True,
+):
 
     wf = pe.Workflow(name)
 
@@ -54,10 +56,10 @@ def init_brain_extraction_wf(name='brain_extraction_wf',
 
     inputnode = pe.Node(niu.IdentityInterface(fields=['in_files', 'in_mask']),
                         name='inputnode')
-    
+
     # outputnode = pe.Node(niu.IdentityInterface(
     #     fields=['out_file', 'out_mask']), name='outputnode')
-    
+
     ### needs editing for local template/templateFlow ###
     tpl_path = '/Users/eilidhmacnicol/projects/nanData/templateFlow/tpl-WHS'
     tpl_target_path = os.path.join(tpl_path, 'tpl-WHS_res-02_T2star.nii.gz')
@@ -68,7 +70,7 @@ def init_brain_extraction_wf(name='brain_extraction_wf',
     tpl_SegMask = os.path.join(tpl_path, 'tpl-WHS_atlas-v3_mask_dilerr.nii.gz')
 
     dil_mask = pe.Node(MaskTool(), name = 'dil_mask')
-    dil_mask.inputs.outputtype = 'NIFTI_GZ' 
+    dil_mask.inputs.outputtype = 'NIFTI_GZ'
     dil_mask.inputs.dilate_inputs = '2'
     dil_mask.inputs.fill_holes = True
 
@@ -110,7 +112,7 @@ def init_brain_extraction_wf(name='brain_extraction_wf',
     init_aff = pe.Node(AI(
         metric=('Mattes', 32, 'Regular', 0.5), #0.25
         transform=('Rigid', 0.1),
-        search_factor=(2, 0.015),  
+        search_factor=(2, 0.015),
         principal_axes=False,
         convergence=(10, 1e-6, 10),
         verbose=True),
@@ -130,7 +132,7 @@ def init_brain_extraction_wf(name='brain_extraction_wf',
     moving_mask_trait = 'moving_image_mask'
     if _ants_version and parseversion(_ants_version) >= Version('2.2.0'):
         fixed_mask_trait += 's'
-        moving_mask_trait += 's' 
+        moving_mask_trait += 's'
 
     # Set up initial spatial normalization
     init_settings_file = 'ratantsBrainExtraction_%s.json'
@@ -161,7 +163,7 @@ N4BiasFieldCorrection.""" % _ants_version, DeprecationWarning)
 
     # Use more precise transforms to warp mask to subject space
     warp_mask_final = pe.Node(ApplyTransforms(
-        interpolation='Linear', invert_transform_flags= [ False, True ]), 
+        interpolation='Linear', invert_transform_flags= [ False, True ]),
         name='warp_mask_final')
 
     # Use subject-space mask to skull-strip subject
@@ -190,14 +192,14 @@ N4BiasFieldCorrection.""" % _ants_version, DeprecationWarning)
         input_image = tpl_TissueLabelImage), name='warp_seg_labels')
 
     segment = pe.Node(Atropos(
-        dimension=3, initialization='PriorLabelImage', number_of_tissue_classes=2, 
-        prior_weighting = 0.03, posterior_formulation = 'Aristotle', 
+        dimension=3, initialization='PriorLabelImage', number_of_tissue_classes=2,
+        prior_weighting = 0.03, posterior_formulation = 'Aristotle',
         n_iterations = 50, convergence_threshold = 0.0001,
         mrf_smoothing_factor = 0.015, mrf_radius = [1, 1, 1]), name='segment')
 
     wf.connect([
         # resampling, truncation, initial N4, and creation of laplacian
-        (inputnode, trunc, [('in_files', 'op1')]), 
+        (inputnode, trunc, [('in_files', 'op1')]),
         (trunc, res_target, [(('output_image', _pop), 'input_image')]),
         (res_target, inu_n4, [('output_image', 'input_image')]),
 
@@ -208,28 +210,28 @@ N4BiasFieldCorrection.""" % _ants_version, DeprecationWarning)
         (inu_n4, init_aff, [(('output_image', _pop), 'moving_image')]),
         (dil_mask, init_aff, [('out_file', 'fixed_image_mask')]),
         (res_tmpl, init_aff, [('output_image', 'fixed_image')]),
-        
+
         # warp mask to individual space
         (dil_mask, warp_mask, [('out_file', 'input_image')]),
         (trunc, warp_mask, [(('output_image', _pop), 'reference_image')]),
         (init_aff, warp_mask, [('output_transform', 'transforms')]),
-        
+
         # masked N4 correction
         (trunc, inu_n4_final, [(('output_image', _pop), 'input_image')]),
         (warp_mask, inu_n4_final, [('output_image', 'weight_image')]),
-                
+
         # merge laplacian and original images
         (inu_n4_final, lap_target, [(('output_image', _pop), 'op1')]),
         (lap_target, norm_lap_target, [('output_image', 'op1')]),
-        (norm_lap_target, mrg_target, [('output_image', 'in2')]), 
+        (norm_lap_target, mrg_target, [('output_image', 'in2')]),
         (inu_n4_final, res_target2, [(('output_image', _pop), 'input_image')]),
         (res_target2, mrg_target, [('output_image', 'in1')]),
-        
+
         (res_tmpl, mrg_tmpl, [('output_image', 'in1')]),
         (lap_tmpl, norm_lap_tmpl, [('output_image', 'op1')]),
         (norm_lap_tmpl, mrg_tmpl, [('output_image', 'in2')]),
 
-        
+
         # normalisation inputs
         (init_aff, init_norm, [('output_transform', 'initial_moving_transform')]),
         (warp_mask, init_norm, [('output_image', 'moving_image_masks')]),
