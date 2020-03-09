@@ -33,6 +33,7 @@ from niworkflows.interfaces.fixes import (
 from niworkflows.interfaces.utils import CopyXForm
 from niworkflows.interfaces.nibabel import Binarize
 
+
 def init_brain_extraction_wf(
     atropos_model=None,
     atropos_refine=True,
@@ -58,10 +59,6 @@ def init_brain_extraction_wf(
 
     """
     wf = pe.Workflow(name)
-
-    if omp_nthreads is None or omp_nthreads < 1:
-        omp_nthreads = cpu_count()
-
     inputnode = pe.Node(niu.IdentityInterface(fields=['in_files', 'in_mask']),
                         name='inputnode')
 
