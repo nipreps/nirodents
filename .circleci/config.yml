@@ -1,0 +1,145 @@
+version: 2
+jobs:
+  test_package:
+    docker:
+      - image: python:3.7.4
+    working_directory: /tmp/src/nirodents
+    steps:
+      - checkout
+      - run:
+          name: Install build depends
+          command: python -m pip install "setuptools>=30.4.0" "pip>=10.0.1" "twine<2.0" docutils
+      - run:
+          name: Build and check
+          command: |
+            python setup.py sdist
+            python -m twine check dist/*
+      - run:
+          name: Validate version
+          command: |
+            THISVERSION=$( python get_version.py )
+            python -m pip install dist/*.tar.gz
+            mkdir empty
+            cd empty
+            INSTALLED=$( python -c 'import nirodents; print(nirodents.__version__)' )
+            test "${CIRCLE_TAG:-$THISVERSION}" == "$INSTALLED"
+
+  deploy_package:
+    docker:
+      - image: python:3.7.4
+    working_directory: /tmp/src/nirodents
+    steps:
+      - checkout
+      - run:
+          name: Install build depends
+          command: python -m pip install "setuptools>=30.4.0" "pip>=10.0.1" "twine<2.0" docutils
+      - run:
+          name: Build and check
+          command: |
+            python setup.py check -r -s
+            python setup.py sdist
+            python -m twine check dist/*
+      - run:
+          name: Validate version
+          command: |
+            THISVERSION=$( python get_version.py )
+            python -m pip install dist/*.tar.gz
+            mkdir empty
+            cd empty
+            INSTALLED=$( python -c 'import nirodents; print(nirodents.__version__)' )
+            test "${CIRCLE_TAG:-$THISVERSION}" == "$INSTALLED"
+      - run:
+          name: Upload to PyPi
+          command: |
+            python -m twine upload dist/*
+
+  build:
+    machine:
+      image: circleci/classic:201808-01
+    working_directory: /tmp/src/nirodents
+    environment:
+      TZ: "/usr/share/zoneinfo/America/Los_Angeles"
+      SCRATCH: "/scratch"
+    steps:
+      - restore_cache:
+          keys:
+            - build-v1-{{ .Branch }}-{{ epoch }}
+            - build-v1-{{ .Branch }}-
+            - build-v1-master-
+            - build-v1-
+          paths:
+            - /tmp/docker
+
+      - run:
+          name: Set-up a Docker registry
+          command: |
+            docker run -d -p 5000:5000 --restart=always --name=registry \
+                -v /tmp/docker:/var/lib/registry registry:2
+      - run:
+          name: Pull existing images
+          command: |
+            set +e
+            docker pull localhost:5000/ubuntu
+            success=$?
+            set -e
+            if [[ "$success" = "0" ]]; then
+                echo "Pulling from local registry"
+                docker tag localhost:5000/ubuntu ubuntu:xenial-20191010
+                docker pull localhost:5000/nirodents
+                docker tag localhost:5000/nirodents nirodents:latest
+            else
+                echo "Pulling from Docker Hub"
+                docker pull ubuntu:xenial-20191010
+                docker tag ubuntu:xenial-20191010 localhost:5000/ubuntu
+                docker push localhost:5000/ubuntu
+            fi
+
+      - checkout
+      - run:
+          name: Build Docker image & push to registry
+          no_output_timeout: 60m
+          command: |
+            e=1 && for i in {1..5}; do
+              docker build --rm --cache-from=nirodents:latest \
+                -t nirodents:latest \
+                --build-arg BUILD_DATE=`date -u +"%Y-%m-%dT%H:%M:%SZ"` \
+                --build-arg VCS_REF=`git rev-parse --short HEAD` . \
+              && e=0 && break || sleep 15
+            done && [ "$e" -eq "0" ]
+            docker tag nirodents:latest localhost:5000/nirodents
+            docker push localhost:5000/nirodents
+      - run:
+          name: Docker registry garbage collection
+          command: |
+            docker exec -it registry /bin/registry garbage-collect --delete-untagged \
+                /etc/docker/registry/config.yml
+      - save_cache:
+          key: build-v1-{{ .Branch }}-{{ epoch }}
+          paths:
+            - /tmp/docker
+
+workflows:
+  version: 2
+  build_test_deploy:
+    jobs:
+      - test_package:
+          filters:
+            branches:
+              ignore:
+                - /masks?\/.*/
+            tags:
+              only: /.*/
+
+      - deploy_package:
+          requires:
+            - test_package
+          filters:
+            branches:
+              ignore: /.*/
+            tags:
+              only: /.*/
+
+      - build:
+          filters:
+            tags:
+              only: /.*/
