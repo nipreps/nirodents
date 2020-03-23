@@ -4,35 +4,27 @@
 
 # general purpose
 import os
-from collections import OrderedDict
 from multiprocessing import cpu_count
 from pkg_resources import resource_filename as pkgr_fn
 from packaging.version import parse as parseversion, Version
 from warnings import warn
 
 # nipype
-from nipype import Function
 from nipype.pipeline import engine as pe
 from nipype.interfaces import utility as niu
 from nipype.interfaces.ants import N4BiasFieldCorrection, Atropos
 from nipype.interfaces.afni import MaskTool
 from nipype.interfaces.fsl import ApplyMask
+from nipype.interfaces.io import DataSink
+
 
 # niworkflows
-from niworkflows.utils.misc import get_template_specs
-from niworkflows.interfaces.ants import (
-    ImageMath,
-    ResampleImageBySpacing,
-    AI,
-    ThresholdImage,
-)
+from niworkflows.interfaces.ants import ImageMath, ResampleImageBySpacing, AI
 from niworkflows.interfaces.fixes import (
     FixHeaderRegistration as Registration,
-    FixHeaderApplyTransforms as ApplyTransforms,
-)
-from niworkflows.interfaces.utils import CopyXForm
-from niworkflows.interfaces.nibabel import Binarize
+    FixHeaderApplyTransforms as ApplyTransforms)
 
+from templateflow.api import get as get_template
 
 def init_brain_extraction_wf(
     atropos_model=None,
@@ -40,12 +32,15 @@ def init_brain_extraction_wf(
     atropos_use_random_seed=True,
     bids_suffix='T1w',
     bspline_fitting_distance=8,  # 4
+    debug=True,
     final_normalization_quality='precise',
     in_template='WHS',
-    init_normalization_quality='threestage',
+    init_normalization_quality='3stage',
+    modality='t2w'
     mem_gb=3.0,
     name='brain_extraction_wf',
     omp_nthreads=None,
+    tpl_suffix='T2star',
     template_spec=None,
     use_float=True,
 ):
@@ -59,18 +54,20 @@ def init_brain_extraction_wf(
 
     """
     wf = pe.Workflow(name)
+
+    if omp_nthreads is None or omp_nthreads < 1:
+        omp_nthreads = cpu_count()
+
     inputnode = pe.Node(niu.IdentityInterface(fields=['in_files', 'in_mask']),
                         name='inputnode')
 
-    # outputnode = pe.Node(niu.IdentityInterface(
-    #     fields=['out_file', 'out_mask']), name='outputnode')
-
+    # Find images in templateFlow
     tpl_target_path = get_template(in_template, resolution=debug + 1, suffix=tpl_suffix)
-    tpl_regmask_path = get_template(in_template, resolution=debug + 1, desc='brain', suffix='mask')
+    tpl_regmask_path = get_template(in_template, resolution=debug + 1, atlas='v3', desc='brain', suffix='mask')
     if tpl_regmask_path:
         inputnode.inputs.in_mask = str(tpl_regmask_path)
-    tpl_TissueLabelImage = os.path.join(tpl_path, 'tpl-WHS_desc-Cerebrum2TissueLabels_dseg.nii.gz')
-    tpl_SegMask = os.path.join(tpl_path, 'tpl-WHS_atlas-v3_mask_dilerr.nii.gz')
+    tpl_TissueLabelImage = get_template(in_template,resolution=debug + 1, desc='cerebrum', suffix='dseg')
+    tpl_SegMask = get_template(in_template, resolution=debug + 1, desc='cerebrum', suffix='mask')
 
     dil_mask = pe.Node(MaskTool(), name = 'dil_mask')
     dil_mask.inputs.outputtype = 'NIFTI_GZ'
@@ -93,17 +90,18 @@ def init_brain_extraction_wf(
     # resample template and target
     res_tmpl = pe.Node(ResampleImageBySpacing(
         out_spacing=(0.4, 0.4, 0.4), apply_smoothing=False), name='res_tmpl')
-    res_tmpl.inputs.input_image = tpl_target_path
+    if tpl_target_path:
+        res_tmpl.inputs.input_image = str(tpl_target_path)
     res_target = pe.Node(ResampleImageBySpacing(
         out_spacing=(0.4, 0.4, 0.4), apply_smoothing=False), name='res_target')
     res_target2 = pe.Node(ResampleImageBySpacing(
         out_spacing=(0.4, 0.4, 0.4), apply_smoothing=False), name='res_target2')
 
-    lap_tmpl = pe.Node(ImageMath(operation='Laplacian', op2='0.4'),
-                       name='lap_tmpl')
-    lap_tmpl.inputs.op1 = tpl_target_path
-    lap_target = pe.Node(ImageMath(operation='Laplacian', op2='0.4'),
-                         name='lap_target')
+    lap_tmpl = pe.Node(ImageMath(operation='Laplacian', op2='0.4'), name='lap_tmpl')
+    if tpl_target_path:
+        lap_tmpl.inputs.op1 = tpl_target_path
+    lap_target = pe.Node(ImageMath(operation='Laplacian', op2='0.4'), name='lap_target')
+    
     norm_lap_tmpl = pe.Node(ImageMath(operation='Normalize'), name='norm_lap_tmpl')
     norm_lap_target = pe.Node(ImageMath(operation='Normalize'), name='norm_lap_target')
 
@@ -139,9 +137,9 @@ def init_brain_extraction_wf(
         moving_mask_trait += 's'
 
     # Set up initial spatial normalization
-    init_settings_file = 'brainextraction_%s.json'
+    init_settings_file = 'data/brainextraction_%s.json'
     init_norm = pe.Node(Registration(from_file=pkgr_fn(
-        'nirodents.data', init_settings_file % init_normalization_quality)),
+        'nirodents', init_settings_file % init_normalization_quality)),
         name='init_norm',
         n_procs=omp_nthreads,
         mem_gb=mem_gb)
@@ -162,86 +160,169 @@ Found ANTs version %s, which is too old. Please consider upgrading to 2.1.0 or \
 greater so that the --rescale-intensities option is available with \
 N4BiasFieldCorrection.""" % _ants_version, DeprecationWarning)
 
-    split_init_transforms = pe.Node(niu.Split(splits = [1,1]), name='split_init_transforms')
+    split_init_transforms = pe.Node(niu.Split(splits=[1,1]), name='split_init_transforms')
     mrg_init_transforms = pe.Node(niu.Merge(2), name='mrg_init_transforms')
 
     # Use more precise transforms to warp mask to subject space
     warp_mask_final = pe.Node(ApplyTransforms(
-        interpolation='Linear', invert_transform_flags= [ False, True ]),
+        interpolation='Linear', invert_transform_flags=[False, True]),
         name='warp_mask_final')
+
+    # morphological closing of warped mask
+    close_mask = pe.Node(MaskTool(), name = 'close_mask')
+    close_mask.inputs.outputtype = 'NIFTI_GZ' 
+    close_mask.inputs.dilate_inputs = '5 -5'
+    close_mask.inputs.fill_holes = True
 
     # Use subject-space mask to skull-strip subject
     skullstrip_tar = pe.Node(ApplyMask(), name = 'skullstrip_tar')
-
-    skullstrip_tpl = pe.Node(ApplyMask(in_file = tpl_target_path), name = 'skullstrip_tpl')
+    skullstrip_tpl = pe.Node(ApplyMask(), name = 'skullstrip_tpl')
+    if tpl_target_path:
+        skullstrip_tpl.inputs.in_file = tpl_target_path
 
     # Normalise skull-stripped image to brain template
-    final_settings_file = 'brainextraction_%s.json'
+    final_settings_file = 'data/brainextraction_%s.json'
     final_norm = pe.Node(Registration(from_file=pkgr_fn(
-        'nirodents.data', final_settings_file % final_normalization_quality)),
+        'nirodents', final_settings_file % final_normalization_quality)),
         name='final_norm',
         n_procs=omp_nthreads,
         mem_gb=mem_gb)
     final_norm.inputs.float = use_float
 
-    split_final_transforms = pe.Node(niu.Split(splits = [1,1]), name='split_final_transforms')
+    split_final_transforms = pe.Node(niu.Split(splits=[1,1]), name='split_final_transforms')
     mrg_final_transforms = pe.Node(niu.Merge(2), name='mrg_final_transforms')
 
     warp_seg_mask = pe.Node(ApplyTransforms(
-        interpolation='Linear', invert_transform_flags = [ False, True ],
-        input_image = tpl_SegMask), name='warp_seg_mask')
+        interpolation='Linear', invert_transform_flags=[False, True]),
+        name='warp_seg_mask')
+    if tpl_SegMask:
+        warp_seg_mask.inputs.input_image = tpl_SegMask
 
     warp_seg_labels =pe.Node(ApplyTransforms(
-        interpolation='Linear', invert_transform_flags = [ False, True ],
-        input_image = tpl_TissueLabelImage), name='warp_seg_labels')
+        interpolation='Linear', invert_transform_flags=[False, True]), 
+        name='warp_seg_labels')
+    if tpl_TissueLabelImage:
+        warp_seg_labels.inputs.input_image = tpl_TissueLabelImage
 
     segment = pe.Node(Atropos(
         dimension=3, initialization='PriorLabelImage', number_of_tissue_classes=2,
-        prior_weighting = 0.03, posterior_formulation = 'Aristotle',
-        n_iterations = 50, convergence_threshold = 0.0001,
-        mrf_smoothing_factor = 0.015, mrf_radius = [1, 1, 1]), name='segment')
+        prior_weighting=0.03, posterior_formulation='Aristotle',
+        n_iterations=50, convergence_threshold=0.0001,
+        mrf_smoothing_factor=0.015, mrf_radius=[1, 1, 1]), name='segment')
 
-    wf.connect([
-        # resampling, truncation, initial N4, and creation of laplacian
-        (inputnode, trunc, [('in_files', 'op1')]),
-        (trunc, res_target, [(('output_image', _pop), 'input_image')]),
-        (res_target, inu_n4, [('output_image', 'input_image')]),
+    sinker = pe.Node(DataSink(), name='sinker')
+
+    if modality == 't2w':
+        wf.connect([
+            # resampling, truncation, initial N4, and creation of laplacian
+            (inputnode, trunc, [('in_files', 'op1')]),
+            (trunc, res_target, [(('output_image', _pop), 'input_image')]),
+            (res_target, inu_n4, [('output_image', 'input_image')]),
+
+            # dilation of input mask
+            (inputnode, dil_mask, [('in_mask', 'in_file')]),
+
+            # ants AI inputs
+            (inu_n4, init_aff, [(('output_image', _pop), 'moving_image')]),
+            (dil_mask, init_aff, [('out_file', 'fixed_image_mask')]),
+            (res_tmpl, init_aff, [('output_image', 'fixed_image')]),
+
+            # warp mask to individual space
+            (dil_mask, warp_mask, [('out_file', 'input_image')]),
+            (trunc, warp_mask, [(('output_image', _pop), 'reference_image')]),
+            (init_aff, warp_mask, [('output_transform', 'transforms')]),
+
+            # masked N4 correction
+            (trunc, inu_n4_final, [(('output_image', _pop), 'input_image')]),
+            (warp_mask, inu_n4_final, [('output_image', 'weight_image')]),
+
+            # merge laplacian and original images
+            (inu_n4_final, lap_target, [(('output_image', _pop), 'op1')]),
+            (lap_target, norm_lap_target, [('output_image', 'op1')]),
+            (norm_lap_target, mrg_target, [('output_image', 'in2')]),
+            (inu_n4_final, res_target2, [(('output_image', _pop), 'input_image')]),
+            (res_target2, mrg_target, [('output_image', 'in1')]),
+
+            (res_tmpl, mrg_tmpl, [('output_image', 'in1')]),
+            (lap_tmpl, norm_lap_tmpl, [('output_image', 'op1')]),
+            (norm_lap_tmpl, mrg_tmpl, [('output_image', 'in2')]),
+
+            # normalisation inputs
+            (init_aff, init_norm, [('output_transform', 'initial_moving_transform')]),
+            (warp_mask, init_norm, [('output_image', 'moving_image_masks')]),
+            (dil_mask, init_norm, [('out_file', 'fixed_image_masks')]),
+            (mrg_tmpl, init_norm, [('out', 'fixed_image')]),
+            (mrg_target, init_norm, [('out', 'moving_image')]),
+
+            # organise normalisation outputs to warp mask
+            (init_norm, split_init_transforms, [('reverse_transforms', 'inlist')]),
+            (split_init_transforms, mrg_init_transforms, [('out2', 'in1')]),
+            (split_init_transforms, mrg_init_transforms, [('out1', 'in2')]),
+
+            (mrg_init_transforms, warp_mask_final, [('out', 'transforms')]),
+            (inu_n4_final, warp_mask_final, [(('output_image', _pop), 'reference_image')]),
+            (dil_mask, warp_mask_final, [('out_file', 'input_image')]),
+            (warp_mask_final, close_mask, [('output_image', 'in_file')]),
+            (close_mask, sinker, [('out_file', 'derivatives.@out_mask')]),
+
+            # mask brains
+            (inu_n4_final, skullstrip_tar, [(('output_image', _pop), 'in_file')]),
+            (close_mask, skullstrip_tar, [('out_file', 'mask_file')]),
+            (inputnode, skullstrip_tpl, [('in_mask', 'mask_file')]),
+
+            # final_normalisation
+            (skullstrip_tpl, final_norm, [('out_file', 'fixed_image')]),
+            (skullstrip_tar, final_norm, [('out_file', 'moving_image')]),
+
+            # Warp mask and labels to subject-space
+            (final_norm, split_final_transforms, [('reverse_transforms', 'inlist')]),
+            (split_final_transforms, mrg_final_transforms, [('out2', 'in1')]),
+            (split_final_transforms, mrg_final_transforms, [('out1', 'in2')]),
+
+            (mrg_final_transforms, warp_seg_mask, [('out', 'transforms')]),
+            (skullstrip_tar, warp_seg_mask, [('out_file', 'reference_image')]),
+            (mrg_final_transforms, warp_seg_labels, [('out', 'transforms')]),
+            (skullstrip_tar, warp_seg_labels, [('out_file', 'reference_image')]),
+
+            # Segmentation
+            (skullstrip_tar, segment, [('out_file', 'intensity_images')]),
+            (warp_seg_labels, segment, [('output_image', 'prior_image')]),
+            (warp_seg_mask, segment, [('output_image', 'mask_image')])
+        ])
+        return wf
+
+    elif modality == 'mp2rage':
+        wf.connect([
+        # resampling and creation of laplacians
+        (inputnode, res_target, [('in_files', 'input_image')]),
+        (inputnode, lap_target, [('in_files', 'op1')]),
+        (lap_target, norm_lap_target, [('output_image', 'op1')]),
+        (norm_lap_target, mrg_target, [('output_image', 'in2')]), 
+        (res_target, mrg_target, [('output_image', 'in1')]),
+        
+        (res_tmpl, mrg_tmpl, [('output_image', 'in1')]),
+        (lap_tmpl, norm_lap_tmpl, [('output_image', 'op1')]),
+        (norm_lap_tmpl, mrg_tmpl, [('output_image', 'in2')]),
 
         #dilation of input mask
         (inputnode, dil_mask, [('in_mask', 'in_file')]),
 
         # ants AI inputs
-        (inu_n4, init_aff, [(('output_image', _pop), 'moving_image')]),
-        (dil_mask, init_aff, [('out_file', 'fixed_image_mask')]),
         (res_tmpl, init_aff, [('output_image', 'fixed_image')]),
+        (res_target, init_aff, [('output_image', 'moving_image')]),
+        (dil_mask, init_aff, [('out_file', 'fixed_image_mask')]),
 
         # warp mask to individual space
         (dil_mask, warp_mask, [('out_file', 'input_image')]),
-        (trunc, warp_mask, [(('output_image', _pop), 'reference_image')]),
+        (inputnode, warp_mask, [('in_files', 'reference_image')]),
         (init_aff, warp_mask, [('output_transform', 'transforms')]),
-
-        # masked N4 correction
-        (trunc, inu_n4_final, [(('output_image', _pop), 'input_image')]),
-        (warp_mask, inu_n4_final, [('output_image', 'weight_image')]),
-
-        # merge laplacian and original images
-        (inu_n4_final, lap_target, [(('output_image', _pop), 'op1')]),
-        (lap_target, norm_lap_target, [('output_image', 'op1')]),
-        (norm_lap_target, mrg_target, [('output_image', 'in2')]),
-        (inu_n4_final, res_target2, [(('output_image', _pop), 'input_image')]),
-        (res_target2, mrg_target, [('output_image', 'in1')]),
-
-        (res_tmpl, mrg_tmpl, [('output_image', 'in1')]),
-        (lap_tmpl, norm_lap_tmpl, [('output_image', 'op1')]),
-        (norm_lap_tmpl, mrg_tmpl, [('output_image', 'in2')]),
-
-
+        
         # normalisation inputs
-        (init_aff, init_norm, [('output_transform', 'initial_moving_transform')]),
-        (warp_mask, init_norm, [('output_image', 'moving_image_masks')]),
-        (dil_mask, init_norm, [('out_file', 'fixed_image_masks')]),
         (mrg_tmpl, init_norm, [('out', 'fixed_image')]),
-        (mrg_target, init_norm, [('out', 'moving_image')]),
+        (mrg_target, init_norm, [('out', 'moving_image')]),    
+        (dil_mask, init_norm, [('out_file', 'fixed_image_masks')]),
+        (warp_mask, init_norm, [('output_image', 'moving_image_masks')]),
+        (init_aff, init_norm, [('output_transform', 'initial_moving_transform')]),
 
         #organise normalisation outputs to warp mask
         (init_norm, split_init_transforms, [('reverse_transforms', 'inlist')]),
@@ -249,13 +330,13 @@ N4BiasFieldCorrection.""" % _ants_version, DeprecationWarning)
         (split_init_transforms, mrg_init_transforms, [('out1', 'in2')]),
 
         (mrg_init_transforms, warp_mask_final, [('out', 'transforms')]),
-        (inu_n4_final, warp_mask_final, [(('output_image', _pop), 'reference_image')]),
+        (inputnode, warp_mask_final, [('in_files', 'reference_image')]),
         (dil_mask, warp_mask_final, [('out_file', 'input_image')]),
-        # (warp_mask_final, outputnode, [('output_image', 'out_mask')]),
+        (warp_mask_final, close_mask, [('output_image', 'in_file')]),
 
         #mask brains
-        (inu_n4_final, skullstrip_tar, [(('output_image', _pop), 'in_file')]),
-        (warp_mask_final, skullstrip_tar, [('output_image', 'mask_file')]),
+        (inputnode, skullstrip_tar, [('in_files', 'in_file')]),
+        (close_mask, skullstrip_tar, [('out_file', 'mask_file')]),
         (inputnode, skullstrip_tpl, [('in_mask', 'mask_file')]),
 
         #final_normalisation
@@ -276,9 +357,8 @@ N4BiasFieldCorrection.""" % _ants_version, DeprecationWarning)
         (skullstrip_tar, segment, [('out_file', 'intensity_images')]),
         (warp_seg_labels, segment, [('output_image', 'prior_image')]),
         (warp_seg_mask, segment, [('output_image', 'mask_image')]),
-    ])
-    return wf
-
+        ])
+        return wf
 
 def _pop(in_files):
     if isinstance(in_files, (list, tuple)):
