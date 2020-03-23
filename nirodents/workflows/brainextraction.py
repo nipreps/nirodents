@@ -137,9 +137,9 @@ def init_brain_extraction_wf(
         moving_mask_trait += 's'
 
     # Set up initial spatial normalization
-    init_settings_file = 'data/brainextraction_%s.json'
+    init_settings_file = 'data/brainextraction_%s_%s.json'
     init_norm = pe.Node(Registration(from_file=pkgr_fn(
-        'nirodents', init_settings_file % init_normalization_quality)),
+        'nirodents', init_settings_file % init_normalization_quality, modality)),
         name='init_norm',
         n_procs=omp_nthreads,
         mem_gb=mem_gb)
@@ -181,9 +181,9 @@ N4BiasFieldCorrection.""" % _ants_version, DeprecationWarning)
         skullstrip_tpl.inputs.in_file = tpl_target_path
 
     # Normalise skull-stripped image to brain template
-    final_settings_file = 'data/brainextraction_%s.json'
+    final_settings_file = 'data/brainextraction_%s_%s.json'
     final_norm = pe.Node(Registration(from_file=pkgr_fn(
-        'nirodents', final_settings_file % final_normalization_quality)),
+        'nirodents', final_settings_file % final_normalization_quality, modality)),
         name='final_norm',
         n_procs=omp_nthreads,
         mem_gb=mem_gb)
