@@ -13,14 +13,12 @@ from warnings import warn
 from nipype.pipeline import engine as pe
 from nipype.interfaces import utility as niu
 from nipype.interfaces.ants import N4BiasFieldCorrection, Atropos
+from nipype.interfaces.ants.utils import ImageMath, ResampleImageBySpacing, AI
 from nipype.interfaces.afni import MaskTool
 from nipype.interfaces.fsl import ApplyMask
 from nipype.interfaces.io import DataSink
 
-
 # niworkflows
-from nipype.interfaces.ants.utils import ImageMath, ResampleImageBySpacing
-from niworkflows.interfaces.ants import AI
 from niworkflows.interfaces.fixes import (
     FixHeaderRegistration as Registration,
     FixHeaderApplyTransforms as ApplyTransforms)
@@ -196,14 +194,14 @@ N4BiasFieldCorrection.""" % _ants_version, DeprecationWarning)
     warp_seg_mask = pe.Node(ApplyTransforms(
         interpolation='Linear', invert_transform_flags=[False, True]),
         name='warp_seg_mask')
-    if tpl_SegMask:
-        warp_seg_mask.inputs.input_image = tpl_SegMask
+    if tpl_brain_mask:
+        warp_seg_mask.inputs.input_image = tpl_brain_mask
 
     warp_seg_labels =pe.Node(ApplyTransforms(
         interpolation='Linear', invert_transform_flags=[False, True]), 
         name='warp_seg_labels')
-    if tpl_TissueLabelImage:
-        warp_seg_labels.inputs.input_image = tpl_TissueLabelImage
+    if tpl_tissue_labels:
+        warp_seg_labels.inputs.input_image = tpl_tissue_labels
 
     segment = pe.Node(Atropos(
         dimension=3, initialization='PriorLabelImage', number_of_tissue_classes=2,
@@ -294,71 +292,71 @@ N4BiasFieldCorrection.""" % _ants_version, DeprecationWarning)
 
     elif modality == 'mp2rage':
         wf.connect([
-        # resampling and creation of laplacians
-        (inputnode, res_target, [('in_files', 'input_image')]),
-        (inputnode, lap_target, [('in_files', 'op1')]),
-        (lap_target, norm_lap_target, [('output_image', 'op1')]),
-        (norm_lap_target, mrg_target, [('output_image', 'in2')]), 
-        (res_target, mrg_target, [('output_image', 'in1')]),
-        
-        (res_tmpl, mrg_tmpl, [('output_image', 'in1')]),
-        (lap_tmpl, norm_lap_tmpl, [('output_image', 'op1')]),
-        (norm_lap_tmpl, mrg_tmpl, [('output_image', 'in2')]),
+            # resampling and creation of laplacians
+            (inputnode, res_target, [('in_files', 'input_image')]),
+            (inputnode, lap_target, [('in_files', 'op1')]),
+            (lap_target, norm_lap_target, [('output_image', 'op1')]),
+            (norm_lap_target, mrg_target, [('output_image', 'in2')]), 
+            (res_target, mrg_target, [('output_image', 'in1')]),
 
-        #dilation of input mask
-        (inputnode, dil_mask, [('in_mask', 'in_file')]),
+            (res_tmpl, mrg_tmpl, [('output_image', 'in1')]),
+            (lap_tmpl, norm_lap_tmpl, [('output_image', 'op1')]),
+            (norm_lap_tmpl, mrg_tmpl, [('output_image', 'in2')]),
 
-        # ants AI inputs
-        (res_tmpl, init_aff, [('output_image', 'fixed_image')]),
-        (res_target, init_aff, [('output_image', 'moving_image')]),
-        (dil_mask, init_aff, [('out_file', 'fixed_image_mask')]),
+            #dilation of input mask
+            (inputnode, dil_mask, [('in_mask', 'in_file')]),
 
-        # warp mask to individual space
-        (dil_mask, warp_mask, [('out_file', 'input_image')]),
-        (inputnode, warp_mask, [('in_files', 'reference_image')]),
-        (init_aff, warp_mask, [('output_transform', 'transforms')]),
-        
-        # normalisation inputs
-        (mrg_tmpl, init_norm, [('out', 'fixed_image')]),
-        (mrg_target, init_norm, [('out', 'moving_image')]),    
-        (dil_mask, init_norm, [('out_file', 'fixed_image_masks')]),
-        (warp_mask, init_norm, [('output_image', 'moving_image_masks')]),
-        (init_aff, init_norm, [('output_transform', 'initial_moving_transform')]),
+            # ants AI inputs
+            (res_tmpl, init_aff, [('output_image', 'fixed_image')]),
+            (res_target, init_aff, [('output_image', 'moving_image')]),
+            (dil_mask, init_aff, [('out_file', 'fixed_image_mask')]),
 
-        #organise normalisation outputs to warp mask
-        (init_norm, split_init_transforms, [('reverse_transforms', 'inlist')]),
-        (split_init_transforms, mrg_init_transforms, [('out2', 'in1')]),
-        (split_init_transforms, mrg_init_transforms, [('out1', 'in2')]),
+            # warp mask to individual space
+            (dil_mask, warp_mask, [('out_file', 'input_image')]),
+            (inputnode, warp_mask, [('in_files', 'reference_image')]),
+            (init_aff, warp_mask, [('output_transform', 'transforms')]),
 
-        (mrg_init_transforms, warp_mask_final, [('out', 'transforms')]),
-        (inputnode, warp_mask_final, [('in_files', 'reference_image')]),
-        (dil_mask, warp_mask_final, [('out_file', 'input_image')]),
-        (warp_mask_final, close_mask, [('output_image', 'in_file')]),
+            # normalisation inputs
+            (mrg_tmpl, init_norm, [('out', 'fixed_image')]),
+            (mrg_target, init_norm, [('out', 'moving_image')]),    
+            (dil_mask, init_norm, [('out_file', 'fixed_image_masks')]),
+            (warp_mask, init_norm, [('output_image', 'moving_image_masks')]),
+            (init_aff, init_norm, [('output_transform', 'initial_moving_transform')]),
 
-        #mask brains
-        (inputnode, skullstrip_tar, [('in_files', 'in_file')]),
-        (close_mask, skullstrip_tar, [('out_file', 'mask_file')]),
-        (inputnode, skullstrip_tpl, [('in_mask', 'mask_file')]),
+            #organise normalisation outputs to warp mask
+            (init_norm, split_init_transforms, [('reverse_transforms', 'inlist')]),
+            (split_init_transforms, mrg_init_transforms, [('out2', 'in1')]),
+            (split_init_transforms, mrg_init_transforms, [('out1', 'in2')]),
 
-        #final_normalisation
-        (skullstrip_tpl, final_norm, [('out_file', 'fixed_image')]),
-        (skullstrip_tar, final_norm, [('out_file', 'moving_image')]),
+            (mrg_init_transforms, warp_mask_final, [('out', 'transforms')]),
+            (inputnode, warp_mask_final, [('in_files', 'reference_image')]),
+            (dil_mask, warp_mask_final, [('out_file', 'input_image')]),
+            (warp_mask_final, close_mask, [('output_image', 'in_file')]),
 
-        # Warp mask and labels to subject-space
-        (final_norm, split_final_transforms, [('reverse_transforms', 'inlist')]),
-        (split_final_transforms, mrg_final_transforms, [('out2', 'in1')]),
-        (split_final_transforms, mrg_final_transforms, [('out1', 'in2')]),
+            #mask brains
+            (inputnode, skullstrip_tar, [('in_files', 'in_file')]),
+            (close_mask, skullstrip_tar, [('out_file', 'mask_file')]),
+            (inputnode, skullstrip_tpl, [('in_mask', 'mask_file')]),
 
-        (mrg_final_transforms, warp_seg_mask, [('out', 'transforms')]),
-        (skullstrip_tar, warp_seg_mask, [('out_file', 'reference_image')]),
-        (mrg_final_transforms, warp_seg_labels, [('out', 'transforms')]),
-        (skullstrip_tar, warp_seg_labels, [('out_file', 'reference_image')]),
+            #final_normalisation
+            (skullstrip_tpl, final_norm, [('out_file', 'fixed_image')]),
+            (skullstrip_tar, final_norm, [('out_file', 'moving_image')]),
 
-        # Segmentation
-        (skullstrip_tar, segment, [('out_file', 'intensity_images')]),
-        (warp_seg_labels, segment, [('output_image', 'prior_image')]),
-        (warp_seg_mask, segment, [('output_image', 'mask_image')]),
-        ])
+            # Warp mask and labels to subject-space
+            (final_norm, split_final_transforms, [('reverse_transforms', 'inlist')]),
+            (split_final_transforms, mrg_final_transforms, [('out2', 'in1')]),
+            (split_final_transforms, mrg_final_transforms, [('out1', 'in2')]),
+
+            (mrg_final_transforms, warp_seg_mask, [('out', 'transforms')]),
+            (skullstrip_tar, warp_seg_mask, [('out_file', 'reference_image')]),
+            (mrg_final_transforms, warp_seg_labels, [('out', 'transforms')]),
+            (skullstrip_tar, warp_seg_labels, [('out_file', 'reference_image')]),
+
+            # Segmentation
+            (skullstrip_tar, segment, [('out_file', 'intensity_images')]),
+            (warp_seg_labels, segment, [('output_image', 'prior_image')]),
+            (warp_seg_mask, segment, [('output_image', 'mask_image')]),
+            ])
         return wf
 
 def _pop(in_files):
