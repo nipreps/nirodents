@@ -19,7 +19,8 @@ from nipype.interfaces.io import DataSink
 
 
 # niworkflows
-from niworkflows.interfaces.ants import ImageMath, ResampleImageBySpacing, AI
+from nipype.interfaces.ants.utils import ImageMath, ResampleImageBySpacing
+from niworkflows.interfaces.ants import AI
 from niworkflows.interfaces.fixes import (
     FixHeaderRegistration as Registration,
     FixHeaderApplyTransforms as ApplyTransforms)
@@ -32,11 +33,11 @@ def init_brain_extraction_wf(
     atropos_use_random_seed=True,
     bids_suffix='T1w',
     bspline_fitting_distance=8,  # 4
-    debug=True,
+    debug=False,
     final_normalization_quality='precise',
     in_template='WHS',
     init_normalization_quality='3stage',
-    modality='t2w'
+    modality='T2w'
     mem_gb=3.0,
     name='brain_extraction_wf',
     omp_nthreads=None,
@@ -66,8 +67,8 @@ def init_brain_extraction_wf(
     tpl_regmask_path = get_template(in_template, resolution=debug + 1, atlas='v3', desc='brain', suffix='mask')
     if tpl_regmask_path:
         inputnode.inputs.in_mask = str(tpl_regmask_path)
-    tpl_TissueLabelImage = get_template(in_template,resolution=debug + 1, desc='cerebrum', suffix='dseg')
-    tpl_SegMask = get_template(in_template, resolution=debug + 1, desc='cerebrum', suffix='mask')
+    tpl_tissue_labels = get_template(in_template,resolution=debug + 1, desc='cerebrum', suffix='dseg')
+    tpl_brain_mask = get_template(in_template, resolution=debug + 1, desc='cerebrum', suffix='mask')
 
     dil_mask = pe.Node(MaskTool(), name = 'dil_mask')
     dil_mask.inputs.outputtype = 'NIFTI_GZ'
@@ -212,7 +213,7 @@ N4BiasFieldCorrection.""" % _ants_version, DeprecationWarning)
 
     sinker = pe.Node(DataSink(), name='sinker')
 
-    if modality == 't2w':
+    if modality.lower() == 't2w':
         wf.connect([
             # resampling, truncation, initial N4, and creation of laplacian
             (inputnode, trunc, [('in_files', 'op1')]),
