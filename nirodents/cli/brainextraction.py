@@ -48,5 +48,5 @@ def main():
 
 if __name__ == "__main__":
     raise RuntimeError("""\
-nirodents/cli/run.py should not be run directly;
+nirodents/cli/brainextraction.py should not be run directly;
 Please `pip install` nirodents and use the `artsBrainExtraction` command.""")
