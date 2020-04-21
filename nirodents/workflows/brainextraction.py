@@ -35,7 +35,7 @@ def init_brain_extraction_wf(
     final_normalization_quality='precise',
     in_template='WHS',
     init_normalization_quality='3stage',
-    modality='T2w'
+    modality='T2w',
     mem_gb=3.0,
     name='brain_extraction_wf',
     omp_nthreads=None,
