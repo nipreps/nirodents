@@ -13,31 +13,32 @@ from warnings import warn
 from nipype.pipeline import engine as pe
 from nipype.interfaces import utility as niu
 from nipype.interfaces.ants import N4BiasFieldCorrection, Atropos
-from nipype.interfaces.ants.utils import ImageMath, ResampleImageBySpacing, AI
+from nipype.interfaces.ants.utils import ResampleImageBySpacing, AI # , ImageMath, 
 from nipype.interfaces.afni import MaskTool
-from nipype.interfaces.fsl import ApplyMask
+# from nipype.interfaces.fsl import ApplyMask
 from nipype.interfaces.io import DataSink
 
 # niworkflows
+from niworkflows.interfaces.ants import ImageMath
 from niworkflows.interfaces.fixes import (
     FixHeaderRegistration as Registration,
     FixHeaderApplyTransforms as ApplyTransforms)
 
 from templateflow.api import get as get_template
 
-def init_brain_extraction_wf(
+def init_rodent_brain_extraction_wf(
     atropos_model=None,
     atropos_refine=True,
     atropos_use_random_seed=True,
-    bids_suffix='T1w',
+    bids_suffix='T2w',
     bspline_fitting_distance=8,  # 4
-    debug=False,
+    debug=True,
     final_normalization_quality='precise',
     in_template='WHS',
     init_normalization_quality='3stage',
     modality='T2w',
     mem_gb=3.0,
-    name='brain_extraction_wf',
+    name='rodent_brain_extraction_wf',
     omp_nthreads=None,
     tpl_suffix='T2star',
     template_spec=None,
@@ -138,7 +139,7 @@ def init_brain_extraction_wf(
     # Set up initial spatial normalization
     init_settings_file = 'brainextraction_%s_%s.json'
     init_norm = pe.Node(Registration(from_file=pkgr_fn(
-        'nirodents', init_settings_file % init_normalization_quality, modality)),
+        'nirodents.data', init_settings_file % (init_normalization_quality, modality))),
         name='init_norm',
         n_procs=omp_nthreads,
         mem_gb=mem_gb)
@@ -174,15 +175,15 @@ N4BiasFieldCorrection.""" % _ants_version, DeprecationWarning)
     close_mask.inputs.fill_holes = True
 
     # Use subject-space mask to skull-strip subject
-    skullstrip_tar = pe.Node(ApplyMask(), name = 'skullstrip_tar')
-    skullstrip_tpl = pe.Node(ApplyMask(), name = 'skullstrip_tpl')
+    skullstrip_tar = pe.Node(ImageMath(operation='m'), name='skullstrip_tar')
+    skullstrip_tpl = pe.Node(ImageMath(operation='m'), name='skullstrip_tpl')
     if tpl_target_path:
-        skullstrip_tpl.inputs.in_file = tpl_target_path
+        skullstrip_tpl.inputs.op1 = tpl_target_path
 
     # Normalise skull-stripped image to brain template
     final_settings_file = 'brainextraction_%s_%s.json'
     final_norm = pe.Node(Registration(from_file=pkgr_fn(
-        'nirodents', final_settings_file % final_normalization_quality, modality)),
+        'nirodents.data', final_settings_file % (final_normalization_quality, modality))),
         name='final_norm',
         n_procs=omp_nthreads,
         mem_gb=mem_gb)
@@ -265,13 +266,13 @@ N4BiasFieldCorrection.""" % _ants_version, DeprecationWarning)
             (close_mask, sinker, [('out_file', 'derivatives.@out_mask')]),
 
             # mask brains
-            (inu_n4_final, skullstrip_tar, [(('output_image', _pop), 'in_file')]),
-            (close_mask, skullstrip_tar, [('out_file', 'mask_file')]),
-            (inputnode, skullstrip_tpl, [('in_mask', 'mask_file')]),
+            (inu_n4_final, skullstrip_tar, [(('output_image', _pop), 'op1')]),
+            (close_mask, skullstrip_tar, [('out_file', 'op2')]),
+            (inputnode, skullstrip_tpl, [('in_mask', 'op2')]),
 
             # final_normalisation
-            (skullstrip_tpl, final_norm, [('out_file', 'fixed_image')]),
-            (skullstrip_tar, final_norm, [('out_file', 'moving_image')]),
+            (skullstrip_tpl, final_norm, [('output_image', 'fixed_image')]),
+            (skullstrip_tar, final_norm, [('output_image', 'moving_image')]),
 
             # Warp mask and labels to subject-space
             (final_norm, split_final_transforms, [('reverse_transforms', 'inlist')]),
@@ -279,12 +280,12 @@ N4BiasFieldCorrection.""" % _ants_version, DeprecationWarning)
             (split_final_transforms, mrg_final_transforms, [('out1', 'in2')]),
 
             (mrg_final_transforms, warp_seg_mask, [('out', 'transforms')]),
-            (skullstrip_tar, warp_seg_mask, [('out_file', 'reference_image')]),
+            (skullstrip_tar, warp_seg_mask, [('output_image', 'reference_image')]),
             (mrg_final_transforms, warp_seg_labels, [('out', 'transforms')]),
-            (skullstrip_tar, warp_seg_labels, [('out_file', 'reference_image')]),
+            (skullstrip_tar, warp_seg_labels, [('output_image', 'reference_image')]),
 
             # Segmentation
-            (skullstrip_tar, segment, [('out_file', 'intensity_images')]),
+            (skullstrip_tar, segment, [('output_image', 'intensity_images')]),
             (warp_seg_labels, segment, [('output_image', 'prior_image')]),
             (warp_seg_mask, segment, [('output_image', 'mask_image')])
         ])
@@ -333,14 +334,14 @@ N4BiasFieldCorrection.""" % _ants_version, DeprecationWarning)
             (dil_mask, warp_mask_final, [('out_file', 'input_image')]),
             (warp_mask_final, close_mask, [('output_image', 'in_file')]),
 
-            #mask brains
-            (inputnode, skullstrip_tar, [('in_files', 'in_file')]),
-            (close_mask, skullstrip_tar, [('out_file', 'mask_file')]),
-            (inputnode, skullstrip_tpl, [('in_mask', 'mask_file')]),
+            # mask brains
+            (inu_n4_final, skullstrip_tar, [(('output_image', _pop), 'op1')]),
+            (close_mask, skullstrip_tar, [('out_file', 'op2')]),
+            (inputnode, skullstrip_tpl, [('in_mask', 'op2')]),
 
-            #final_normalisation
-            (skullstrip_tpl, final_norm, [('out_file', 'fixed_image')]),
-            (skullstrip_tar, final_norm, [('out_file', 'moving_image')]),
+            # final_normalisation
+            (skullstrip_tpl, final_norm, [('output_image', 'fixed_image')]),
+            (skullstrip_tar, final_norm, [('output_image', 'moving_image')]),
 
             # Warp mask and labels to subject-space
             (final_norm, split_final_transforms, [('reverse_transforms', 'inlist')]),
@@ -348,12 +349,12 @@ N4BiasFieldCorrection.""" % _ants_version, DeprecationWarning)
             (split_final_transforms, mrg_final_transforms, [('out1', 'in2')]),
 
             (mrg_final_transforms, warp_seg_mask, [('out', 'transforms')]),
-            (skullstrip_tar, warp_seg_mask, [('out_file', 'reference_image')]),
+            (skullstrip_tar, warp_seg_mask, [('output_image', 'reference_image')]),
             (mrg_final_transforms, warp_seg_labels, [('out', 'transforms')]),
-            (skullstrip_tar, warp_seg_labels, [('out_file', 'reference_image')]),
+            (skullstrip_tar, warp_seg_labels, [('output_image', 'reference_image')]),
 
             # Segmentation
-            (skullstrip_tar, segment, [('out_file', 'intensity_images')]),
+            (skullstrip_tar, segment, [('output_image', 'intensity_images')]),
             (warp_seg_labels, segment, [('output_image', 'prior_image')]),
             (warp_seg_mask, segment, [('output_image', 'mask_image')]),
             ])
