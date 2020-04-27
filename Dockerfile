@@ -24,7 +24,7 @@ ENV ANTSPATH=/usr/lib/ants
 RUN mkdir -p $ANTSPATH && \
     curl -sSL "https://dl.dropbox.com/s/hrm530kcqe3zo68/ants-Linux-centos6_x86_64-v2.3.2.tar.gz" \
     | tar -xzC $ANTSPATH --strip-components 1
-ENV PATH=$ANTSPATH:$PATH
+ENV PATH=$ANTSPATH/bin:$PATH
 
 # Create a shared $HOME directory
 RUN useradd -m -s /bin/bash -G users nirodents
