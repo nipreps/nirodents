@@ -182,9 +182,9 @@ N4BiasFieldCorrection.""" % _ants_version, DeprecationWarning)
         skullstrip_tpl.inputs.in_file = tpl_target_path
 
     # Normalise skull-stripped image to brain template
-    final_settings_file = 'brainextraction_%s_%s.json'
+    final_settings_file = f'data/brainextraction_{final_normalization_quality}_{modality}.json'
     final_norm = pe.Node(Registration(from_file=pkgr_fn(
-        'nirodents.data', final_settings_file % (final_normalization_quality, modality))),
+        'nirodents', final_settings_file),
         name='final_norm',
         n_procs=omp_nthreads,
         mem_gb=mem_gb)
