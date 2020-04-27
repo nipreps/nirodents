@@ -24,25 +24,28 @@ ANTs-based Rodents ToolS (ARTs) package.\
                         help="Number of CPUs available for multithreading processes.")
     parser.add_argument("--nprocs", action="store", type=int, default=cpu_count(),
                         help="Number of processes that can be run in parallel.")
+    parser.add_argument("--debug", action="store", type=int, default=0, choices=[0,1],
+                        help="Boolean to run debug mode.")
     return parser
 
 
 def main():
     """Entry point."""
-    from ..workflows.brainextraction import init_brain_extraction_wf
+    from ..workflows.brainextraction import init_rodent_brain_extraction_wf
 
     opts = get_parser().parse_args()
-    be = init_brain_extraction_wf(
+    be = init_rodent_brain_extraction_wf(
         in_template=opts.template,
         omp_nthreads=opts.omp_nthreads,
     )
-    be.inputs.in_file = opts.input_image
+    be.inputs.inputnode.in_files = opts.input_image
     nipype_plugin = {"plugin": "Linear"}
     if opts.nprocs > 1:
         nipype_plugin["plugin"] = "MultiProc"
         nipype_plugin["plugin_args"] = {
             "nproc": opts.nprocs,
         }
+    print('input image: ', opts.input_image)
     be.run(**nipype_plugin)
 
 

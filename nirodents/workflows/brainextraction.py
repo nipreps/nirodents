@@ -13,23 +13,25 @@ from warnings import warn
 from nipype.pipeline import engine as pe
 from nipype.interfaces import utility as niu
 from nipype.interfaces.ants import N4BiasFieldCorrection, Atropos
-from nipype.interfaces.ants.utils import ImageMath, ResampleImageBySpacing, AI
+from nipype.interfaces.ants.utils import ResampleImageBySpacing, AI # , ImageMath, 
 from nipype.interfaces.afni import MaskTool
-from nipype.interfaces.fsl import ApplyMask
+# from nipype.interfaces.fsl import ApplyMask
 from nipype.interfaces.io import DataSink
 
 # niworkflows
+from niworkflows.interfaces.ants import ImageMath
+from niworkflows.interfaces.nibabel import ApplyMask
 from niworkflows.interfaces.fixes import (
     FixHeaderRegistration as Registration,
     FixHeaderApplyTransforms as ApplyTransforms)
 
 from templateflow.api import get as get_template
 
-def init_brain_extraction_wf(
+def init_rodent_brain_extraction_wf(
     atropos_model=None,
     atropos_refine=True,
     atropos_use_random_seed=True,
-    bids_suffix='T1w',
+    bids_suffix='T2w',
     bspline_fitting_distance=8,  # 4
     debug=False,
     final_normalization_quality='precise',
@@ -37,7 +39,7 @@ def init_brain_extraction_wf(
     init_normalization_quality='3stage',
     modality='T2w',
     mem_gb=3.0,
-    name='brain_extraction_wf',
+    name='rodent_brain_extraction_wf',
     omp_nthreads=None,
     tpl_suffix='T2star',
     template_spec=None,
@@ -136,9 +138,9 @@ def init_brain_extraction_wf(
         moving_mask_trait += 's'
 
     # Set up initial spatial normalization
-    init_settings_file = 'brainextraction_%s_%s.json'
+    init_settings_file = f'data/brainextraction_{init_normalization_quality}_{modality}.json'
     init_norm = pe.Node(Registration(from_file=pkgr_fn(
-        'nirodents', init_settings_file % init_normalization_quality, modality)),
+        'nirodents', init_settings_file),
         name='init_norm',
         n_procs=omp_nthreads,
         mem_gb=mem_gb)
@@ -174,15 +176,15 @@ N4BiasFieldCorrection.""" % _ants_version, DeprecationWarning)
     close_mask.inputs.fill_holes = True
 
     # Use subject-space mask to skull-strip subject
-    skullstrip_tar = pe.Node(ApplyMask(), name = 'skullstrip_tar')
-    skullstrip_tpl = pe.Node(ApplyMask(), name = 'skullstrip_tpl')
+    skullstrip_tar = pe.Node(ApplyMask, name='skullstrip_tar')
+    skullstrip_tpl = pe.Node(ApplyMask, name='skullstrip_tpl')
     if tpl_target_path:
         skullstrip_tpl.inputs.in_file = tpl_target_path
 
     # Normalise skull-stripped image to brain template
-    final_settings_file = 'brainextraction_%s_%s.json'
+    final_settings_file = f'data/brainextraction_{final_normalization_quality}_{modality}.json'
     final_norm = pe.Node(Registration(from_file=pkgr_fn(
-        'nirodents', final_settings_file % final_normalization_quality, modality)),
+        'nirodents', final_settings_file),
         name='final_norm',
         n_procs=omp_nthreads,
         mem_gb=mem_gb)
@@ -266,8 +268,8 @@ N4BiasFieldCorrection.""" % _ants_version, DeprecationWarning)
 
             # mask brains
             (inu_n4_final, skullstrip_tar, [(('output_image', _pop), 'in_file')]),
-            (close_mask, skullstrip_tar, [('out_file', 'mask_file')]),
-            (inputnode, skullstrip_tpl, [('in_mask', 'mask_file')]),
+            (close_mask, skullstrip_tar, [('out_file', 'in_mask')]),
+            (inputnode, skullstrip_tpl, [('in_mask', 'in_mask')]),
 
             # final_normalisation
             (skullstrip_tpl, final_norm, [('out_file', 'fixed_image')]),
@@ -333,12 +335,12 @@ N4BiasFieldCorrection.""" % _ants_version, DeprecationWarning)
             (dil_mask, warp_mask_final, [('out_file', 'input_image')]),
             (warp_mask_final, close_mask, [('output_image', 'in_file')]),
 
-            #mask brains
-            (inputnode, skullstrip_tar, [('in_files', 'in_file')]),
-            (close_mask, skullstrip_tar, [('out_file', 'mask_file')]),
-            (inputnode, skullstrip_tpl, [('in_mask', 'mask_file')]),
+            # mask brains
+            (inu_n4_final, skullstrip_tar, [(('output_image', _pop), 'in_file')]),
+            (close_mask, skullstrip_tar, [('out_file', 'in_mask')]),
+            (inputnode, skullstrip_tpl, [('in_mask', 'in_mask')]),
 
-            #final_normalisation
+            # final_normalisation
             (skullstrip_tpl, final_norm, [('out_file', 'fixed_image')]),
             (skullstrip_tar, final_norm, [('out_file', 'moving_image')]),
 
