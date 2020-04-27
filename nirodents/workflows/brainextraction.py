@@ -20,6 +20,7 @@ from nipype.interfaces.io import DataSink
 
 # niworkflows
 from niworkflows.interfaces.ants import ImageMath
+from niworkflows.interfaces.nibabel import ApplyMask
 from niworkflows.interfaces.fixes import (
     FixHeaderRegistration as Registration,
     FixHeaderApplyTransforms as ApplyTransforms)
@@ -175,10 +176,10 @@ N4BiasFieldCorrection.""" % _ants_version, DeprecationWarning)
     close_mask.inputs.fill_holes = True
 
     # Use subject-space mask to skull-strip subject
-    skullstrip_tar = pe.Node(ImageMath(operation='m'), name='skullstrip_tar')
-    skullstrip_tpl = pe.Node(ImageMath(operation='m'), name='skullstrip_tpl')
+    skullstrip_tar = pe.Node(ApplyMask, name='skullstrip_tar')
+    skullstrip_tpl = pe.Node(ApplyMask, name='skullstrip_tpl')
     if tpl_target_path:
-        skullstrip_tpl.inputs.op1 = tpl_target_path
+        skullstrip_tpl.inputs.in_file = tpl_target_path
 
     # Normalise skull-stripped image to brain template
     final_settings_file = 'brainextraction_%s_%s.json'
@@ -266,13 +267,13 @@ N4BiasFieldCorrection.""" % _ants_version, DeprecationWarning)
             (close_mask, sinker, [('out_file', 'derivatives.@out_mask')]),
 
             # mask brains
-            (inu_n4_final, skullstrip_tar, [(('output_image', _pop), 'op1')]),
-            (close_mask, skullstrip_tar, [('out_file', 'op2')]),
-            (inputnode, skullstrip_tpl, [('in_mask', 'op2')]),
+            (inu_n4_final, skullstrip_tar, [(('output_image', _pop), 'in_file')]),
+            (close_mask, skullstrip_tar, [('out_file', 'in_mask')]),
+            (inputnode, skullstrip_tpl, [('in_mask', 'in_mask')]),
 
             # final_normalisation
-            (skullstrip_tpl, final_norm, [('output_image', 'fixed_image')]),
-            (skullstrip_tar, final_norm, [('output_image', 'moving_image')]),
+            (skullstrip_tpl, final_norm, [('out_file', 'fixed_image')]),
+            (skullstrip_tar, final_norm, [('out_file', 'moving_image')]),
 
             # Warp mask and labels to subject-space
             (final_norm, split_final_transforms, [('reverse_transforms', 'inlist')]),
@@ -280,12 +281,12 @@ N4BiasFieldCorrection.""" % _ants_version, DeprecationWarning)
             (split_final_transforms, mrg_final_transforms, [('out1', 'in2')]),
 
             (mrg_final_transforms, warp_seg_mask, [('out', 'transforms')]),
-            (skullstrip_tar, warp_seg_mask, [('output_image', 'reference_image')]),
+            (skullstrip_tar, warp_seg_mask, [('out_file', 'reference_image')]),
             (mrg_final_transforms, warp_seg_labels, [('out', 'transforms')]),
-            (skullstrip_tar, warp_seg_labels, [('output_image', 'reference_image')]),
+            (skullstrip_tar, warp_seg_labels, [('out_file', 'reference_image')]),
 
             # Segmentation
-            (skullstrip_tar, segment, [('output_image', 'intensity_images')]),
+            (skullstrip_tar, segment, [('out_file', 'intensity_images')]),
             (warp_seg_labels, segment, [('output_image', 'prior_image')]),
             (warp_seg_mask, segment, [('output_image', 'mask_image')])
         ])
@@ -335,13 +336,13 @@ N4BiasFieldCorrection.""" % _ants_version, DeprecationWarning)
             (warp_mask_final, close_mask, [('output_image', 'in_file')]),
 
             # mask brains
-            (inu_n4_final, skullstrip_tar, [(('output_image', _pop), 'op1')]),
-            (close_mask, skullstrip_tar, [('out_file', 'op2')]),
-            (inputnode, skullstrip_tpl, [('in_mask', 'op2')]),
+            (inu_n4_final, skullstrip_tar, [(('output_image', _pop), 'in_file')]),
+            (close_mask, skullstrip_tar, [('out_file', 'in_mask')]),
+            (inputnode, skullstrip_tpl, [('in_mask', 'in_mask')]),
 
             # final_normalisation
-            (skullstrip_tpl, final_norm, [('output_image', 'fixed_image')]),
-            (skullstrip_tar, final_norm, [('output_image', 'moving_image')]),
+            (skullstrip_tpl, final_norm, [('out_file', 'fixed_image')]),
+            (skullstrip_tar, final_norm, [('out_file', 'moving_image')]),
 
             # Warp mask and labels to subject-space
             (final_norm, split_final_transforms, [('reverse_transforms', 'inlist')]),
@@ -349,12 +350,12 @@ N4BiasFieldCorrection.""" % _ants_version, DeprecationWarning)
             (split_final_transforms, mrg_final_transforms, [('out1', 'in2')]),
 
             (mrg_final_transforms, warp_seg_mask, [('out', 'transforms')]),
-            (skullstrip_tar, warp_seg_mask, [('output_image', 'reference_image')]),
+            (skullstrip_tar, warp_seg_mask, [('out_file', 'reference_image')]),
             (mrg_final_transforms, warp_seg_labels, [('out', 'transforms')]),
-            (skullstrip_tar, warp_seg_labels, [('output_image', 'reference_image')]),
+            (skullstrip_tar, warp_seg_labels, [('out_file', 'reference_image')]),
 
             # Segmentation
-            (skullstrip_tar, segment, [('output_image', 'intensity_images')]),
+            (skullstrip_tar, segment, [('out_file', 'intensity_images')]),
             (warp_seg_labels, segment, [('output_image', 'prior_image')]),
             (warp_seg_mask, segment, [('output_image', 'mask_image')]),
             ])
