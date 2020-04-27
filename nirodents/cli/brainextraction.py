@@ -24,6 +24,8 @@ ANTs-based Rodents ToolS (ARTs) package.\
                         help="Number of CPUs available for multithreading processes.")
     parser.add_argument("--nprocs", action="store", type=int, default=cpu_count(),
                         help="Number of processes that can be run in parallel.")
+    parser.add_argument("--debug", action="store", type=int, default=0, choices=[0,1],
+                        help="Boolean to run debug mode.")
     return parser
 
 
