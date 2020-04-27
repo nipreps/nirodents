@@ -32,7 +32,7 @@ def init_rodent_brain_extraction_wf(
     atropos_use_random_seed=True,
     bids_suffix='T2w',
     bspline_fitting_distance=8,  # 4
-    debug=True,
+    debug=False,
     final_normalization_quality='precise',
     in_template='WHS',
     init_normalization_quality='3stage',
@@ -137,9 +137,9 @@ def init_rodent_brain_extraction_wf(
         moving_mask_trait += 's'
 
     # Set up initial spatial normalization
-    init_settings_file = 'brainextraction_%s_%s.json'
+    init_settings_file = f'data/brainextraction_{init_normalization_quality}_{modality}.json'
     init_norm = pe.Node(Registration(from_file=pkgr_fn(
-        'nirodents.data', init_settings_file % (init_normalization_quality, modality))),
+        'nirodents', init_settings_file),
         name='init_norm',
         n_procs=omp_nthreads,
         mem_gb=mem_gb)

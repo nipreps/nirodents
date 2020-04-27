@@ -29,7 +29,7 @@ ANTs-based Rodents ToolS (ARTs) package.\
 
 def main():
     """Entry point."""
-    from nirodents.workflows.brainextraction import init_rodent_brain_extraction_wf
+    from ..workflows.brainextraction import init_rodent_brain_extraction_wf
 
     opts = get_parser().parse_args()
     be = init_rodent_brain_extraction_wf(
