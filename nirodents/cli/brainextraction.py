@@ -37,6 +37,7 @@ def main():
     be = init_rodent_brain_extraction_wf(
         in_template=opts.template,
         omp_nthreads=opts.omp_nthreads,
+        debug=opts.debug
     )
     be.inputs.inputnode.in_files = opts.input_image
     nipype_plugin = {"plugin": "Linear"}
