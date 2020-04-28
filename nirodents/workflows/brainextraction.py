@@ -143,7 +143,7 @@ def init_rodent_brain_extraction_wf(
         'nirodents', init_settings_file),
         name='init_norm',
         n_procs=omp_nthreads,
-        mem_gb=mem_gb)
+        mem_gb=mem_gb))
     init_norm.inputs.float = use_float
 
     # Refine INU correction
@@ -187,7 +187,7 @@ N4BiasFieldCorrection.""" % _ants_version, DeprecationWarning)
         'nirodents', final_settings_file),
         name='final_norm',
         n_procs=omp_nthreads,
-        mem_gb=mem_gb)
+        mem_gb=mem_gb))
     final_norm.inputs.float = use_float
 
     split_final_transforms = pe.Node(niu.Split(splits=[1,1]), name='split_final_transforms')
