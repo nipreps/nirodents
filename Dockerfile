@@ -1,5 +1,5 @@
 # Use Ubuntu 16.04 LTS
-FROM ubuntu:xenial-20191010
+FROM ubuntu:xenial-20200114
 
 # Pre-cache neurodebian key
 COPY docker/files/neurodebian.gpg /usr/local/etc/.neurodebian.gpg
@@ -7,16 +7,16 @@ COPY docker/files/neurodebian.gpg /usr/local/etc/.neurodebian.gpg
 # Prepare environment
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-                    curl \
+                    autoconf \
+                    build-essential \
                     bzip2 \
                     ca-certificates \
-                    xvfb \
-                    cython3 \
-                    build-essential \
-                    autoconf \
+                    curl \
+                    git \
                     libtool \
+                    lsb-release \
                     pkg-config \
-                    git && \
+                    xvfb && \
     apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # Installing ANTs 2.3.0 (NeuroDocker build)
@@ -25,6 +25,24 @@ RUN mkdir -p $ANTSPATH && \
     curl -sSL "https://dl.dropbox.com/s/hrm530kcqe3zo68/ants-Linux-centos6_x86_64-v2.3.2.tar.gz" \
     | tar -xzC $ANTSPATH --strip-components 1
 ENV PATH=$ANTSPATH/bin:$PATH
+
+# Pre-cache neurodebian key
+COPY docker/files/neurodebian.gpg /usr/local/etc/neurodebian.gpg
+# Installing Neurodebian packages (FSL, AFNI, git)
+RUN curl -sSL "http://neuro.debian.net/lists/$( lsb_release -c | cut -f2 ).us-ca.full" >> /etc/apt/sources.list.d/neurodebian.sources.list && \
+    apt-key add /usr/local/etc/neurodebian.gpg && \
+    (apt-key adv --refresh-keys --keyserver hkp://ha.pool.sks-keyservers.net 0xA5D32F012649A5A9 || true)
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+                    afni=16.2.07~dfsg.1-5~nd16.04+1 && \
+    apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+ENV AFNI_MODELPATH="/usr/lib/afni/models" \
+    AFNI_IMSAVE_WARNINGS="NO" \
+    AFNI_TTATLAS_DATASET="/usr/share/afni/atlases" \
+    AFNI_PLUGINPATH="/usr/lib/afni/plugins"
+ENV PATH="/usr/lib/afni/bin:$PATH"
 
 # Create a shared $HOME directory
 RUN useradd -m -s /bin/bash -G users nirodents
