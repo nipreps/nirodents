@@ -140,10 +140,10 @@ def init_rodent_brain_extraction_wf(
     # Set up initial spatial normalization
     init_settings_file = f'data/brainextraction_{init_normalization_quality}_{modality}.json'
     init_norm = pe.Node(Registration(from_file=pkgr_fn(
-        'nirodents', init_settings_file),
+        'nirodents', init_settings_file)),
         name='init_norm',
         n_procs=omp_nthreads,
-        mem_gb=mem_gb))
+        mem_gb=mem_gb)
     init_norm.inputs.float = use_float
 
     # Refine INU correction
@@ -176,18 +176,18 @@ N4BiasFieldCorrection.""" % _ants_version, DeprecationWarning)
     close_mask.inputs.fill_holes = True
 
     # Use subject-space mask to skull-strip subject
-    skullstrip_tar = pe.Node(ApplyMask, name='skullstrip_tar')
-    skullstrip_tpl = pe.Node(ApplyMask, name='skullstrip_tpl')
+    skullstrip_tar = pe.Node(ApplyMask(), name='skullstrip_tar')
+    skullstrip_tpl = pe.Node(ApplyMask(), name='skullstrip_tpl')
     if tpl_target_path:
         skullstrip_tpl.inputs.in_file = tpl_target_path
 
     # Normalise skull-stripped image to brain template
     final_settings_file = f'data/brainextraction_{final_normalization_quality}_{modality}.json'
     final_norm = pe.Node(Registration(from_file=pkgr_fn(
-        'nirodents', final_settings_file),
+        'nirodents', final_settings_file)),
         name='final_norm',
         n_procs=omp_nthreads,
-        mem_gb=mem_gb))
+        mem_gb=mem_gb)
     final_norm.inputs.float = use_float
 
     split_final_transforms = pe.Node(niu.Split(splits=[1,1]), name='split_final_transforms')
