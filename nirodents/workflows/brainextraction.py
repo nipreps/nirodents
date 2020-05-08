@@ -120,18 +120,19 @@ def init_rodent_brain_extraction_wf(
         search_factor=(2, 0.015),
         principal_axes=False,
         convergence=(10, 1e-6, 10),
+        search_grid=(1, (1, 2, 2)),
         verbose=True),
         name='init_aff',
         n_procs=omp_nthreads)
 
+    # Tolerate missing ANTs at construction time
+    _ants_version = Registration().version
+    # if _ants_version and parseversion(_ants_version) >= Version('2.3.0'):
+    #     init_aff.inputs.search_grid = (1, (1, 2, 2))
+
     # Initial warping of template mask to subject space
     warp_mask = pe.Node(ApplyTransforms(
         interpolation='Linear', invert_transform_flags=True), name='warp_mask')
-
-    # Tolerate missing ANTs at construction time
-    _ants_version = Registration().version
-    if _ants_version and parseversion(_ants_version) >= Version('2.3.0'):
-        init_aff.inputs.search_grid = (1, (1, 2, 2))
 
     fixed_mask_trait = 'fixed_image_mask'
     moving_mask_trait = 'moving_image_mask'
