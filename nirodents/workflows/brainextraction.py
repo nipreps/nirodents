@@ -125,20 +125,12 @@ def init_rodent_brain_extraction_wf(
         name='init_aff',
         n_procs=omp_nthreads)
 
-    # Tolerate missing ANTs at construction time
-    _ants_version = Registration().version
-    # if _ants_version and parseversion(_ants_version) >= Version('2.3.0'):
-    #     init_aff.inputs.search_grid = (1, (1, 2, 2))
-
     # Initial warping of template mask to subject space
     warp_mask = pe.Node(ApplyTransforms(
         interpolation='Linear', invert_transform_flags=True), name='warp_mask')
 
-    fixed_mask_trait = 'fixed_image_mask'
-    moving_mask_trait = 'moving_image_mask'
-    if _ants_version and parseversion(_ants_version) >= Version('2.2.0'):
-        fixed_mask_trait += 's'
-        moving_mask_trait += 's'
+    fixed_mask_trait = 'fixed_image_masks'
+    moving_mask_trait = 'moving_image_masks'
 
     # Set up initial spatial normalization
     init_settings_file = f'data/brainextraction_{init_normalization_quality}_{modality}.json'
@@ -153,16 +145,10 @@ def init_rodent_brain_extraction_wf(
     inu_n4_final = pe.MapNode(
         N4BiasFieldCorrection(
             dimension=3, save_bias=True, copy_header=True,
-            n_iterations=[50] * 5, convergence_threshold=1e-7, shrink_factor=4,
-            bspline_fitting_distance=bspline_fitting_distance),
+            n_iterations=[50] * 5, convergence_threshold=1e-7, 
+            bspline_fitting_distance=bspline_fitting_distance,
+            rescale_intensities = True, shrink_factor=4),
         n_procs=omp_nthreads, name='inu_n4_final', iterfield=['input_image'])
-    if _ants_version and parseversion(_ants_version) >= Version('2.1.0'):
-        inu_n4_final.inputs.rescale_intensities = True
-    else:
-        warn("""\
-Found ANTs version %s, which is too old. Please consider upgrading to 2.1.0 or \
-greater so that the --rescale-intensities option is available with \
-N4BiasFieldCorrection.""" % _ants_version, DeprecationWarning)
 
     split_init_transforms = pe.Node(niu.Split(splits=[1,1]), name='split_init_transforms')
     mrg_init_transforms = pe.Node(niu.Merge(2), name='mrg_init_transforms')
