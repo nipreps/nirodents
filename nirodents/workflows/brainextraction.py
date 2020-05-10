@@ -13,13 +13,13 @@ from warnings import warn
 from nipype.pipeline import engine as pe
 from nipype.interfaces import utility as niu
 from nipype.interfaces.ants import N4BiasFieldCorrection, Atropos
-from nipype.interfaces.ants.utils import ResampleImageBySpacing, AI # , ImageMath, 
+from nipype.interfaces.ants.utils import AI # , ImageMath, ResampleImageBySpacing, 
 from nipype.interfaces.afni import MaskTool
-# from nipype.interfaces.fsl import ApplyMask
 from nipype.interfaces.io import DataSink
 
 # niworkflows
 from niworkflows.interfaces.ants import ImageMath
+from niworkflows.utils.images import resample_by_spacing
 from niworkflows.interfaces.nibabel import ApplyMask
 from niworkflows.interfaces.fixes import (
     FixHeaderRegistration as Registration,
@@ -70,6 +70,17 @@ def init_rodent_brain_extraction_wf(
     tpl_tissue_labels = get_template(in_template,resolution=debug + 1, desc='cerebrum', suffix='dseg')
     tpl_brain_mask = get_template(in_template, resolution=debug + 1, desc='cerebrum', suffix='mask')
 
+    # resample template and target
+    res_tmpl = pe.Node(niu.Function(function=res_by_spc, 
+        input_names=['in_file'], output_names=['out_file']), name='res_tmpl')
+    if tpl_target_path:
+        res_tmpl.inputs.in_file = tpl_target_path
+
+    res_target = pe.Node(niu.Function(function=res_by_spc, 
+        input_names=['in_file'], output_names=['out_file']), name='res_target')
+    res_target2 = pe.Node(niu.Function(function=res_by_spc, 
+        input_names=['in_file'], output_names=['out_file']), name='res_target2')
+
     dil_mask = pe.Node(MaskTool(), name = 'dil_mask')
     dil_mask.inputs.outputtype = 'NIFTI_GZ'
     dil_mask.inputs.dilate_inputs = '2'
@@ -88,15 +99,6 @@ def init_rodent_brain_extraction_wf(
             bspline_fitting_distance=bspline_fitting_distance),
         n_procs=omp_nthreads, name='inu_n4', iterfield=['input_image'])
 
-    # resample template and target
-    res_tmpl = pe.Node(ResampleImageBySpacing(
-        out_spacing=(0.4, 0.4, 0.4), apply_smoothing=False), name='res_tmpl')
-    if tpl_target_path:
-        res_tmpl.inputs.input_image = str(tpl_target_path)
-    res_target = pe.Node(ResampleImageBySpacing(
-        out_spacing=(0.4, 0.4, 0.4), apply_smoothing=False), name='res_target')
-    res_target2 = pe.Node(ResampleImageBySpacing(
-        out_spacing=(0.4, 0.4, 0.4), apply_smoothing=False), name='res_target2')
 
     lap_tmpl = pe.Node(ImageMath(operation='Laplacian', op2='0.4'), name='lap_tmpl')
     if tpl_target_path:
@@ -118,6 +120,7 @@ def init_rodent_brain_extraction_wf(
         search_factor=(2, 0.015),
         principal_axes=False,
         convergence=(10, 1e-6, 10),
+        search_grid=(1, (1, 2, 2)),
         verbose=True),
         name='init_aff',
         n_procs=omp_nthreads)
@@ -126,16 +129,8 @@ def init_rodent_brain_extraction_wf(
     warp_mask = pe.Node(ApplyTransforms(
         interpolation='Linear', invert_transform_flags=True), name='warp_mask')
 
-    # Tolerate missing ANTs at construction time
-    _ants_version = Registration().version
-    if _ants_version and parseversion(_ants_version) >= Version('2.3.0'):
-        init_aff.inputs.search_grid = (1, (1, 2, 2))
-
-    fixed_mask_trait = 'fixed_image_mask'
-    moving_mask_trait = 'moving_image_mask'
-    if _ants_version and parseversion(_ants_version) >= Version('2.2.0'):
-        fixed_mask_trait += 's'
-        moving_mask_trait += 's'
+    fixed_mask_trait = 'fixed_image_masks'
+    moving_mask_trait = 'moving_image_masks'
 
     # Set up initial spatial normalization
     init_settings_file = f'data/brainextraction_{init_normalization_quality}_{modality}.json'
@@ -150,16 +145,10 @@ def init_rodent_brain_extraction_wf(
     inu_n4_final = pe.MapNode(
         N4BiasFieldCorrection(
             dimension=3, save_bias=True, copy_header=True,
-            n_iterations=[50] * 5, convergence_threshold=1e-7, shrink_factor=4,
-            bspline_fitting_distance=bspline_fitting_distance),
+            n_iterations=[50] * 5, convergence_threshold=1e-7, 
+            bspline_fitting_distance=bspline_fitting_distance,
+            rescale_intensities = True, shrink_factor=4),
         n_procs=omp_nthreads, name='inu_n4_final', iterfield=['input_image'])
-    if _ants_version and parseversion(_ants_version) >= Version('2.1.0'):
-        inu_n4_final.inputs.rescale_intensities = True
-    else:
-        warn("""\
-Found ANTs version %s, which is too old. Please consider upgrading to 2.1.0 or \
-greater so that the --rescale-intensities option is available with \
-N4BiasFieldCorrection.""" % _ants_version, DeprecationWarning)
 
     split_init_transforms = pe.Node(niu.Split(splits=[1,1]), name='split_init_transforms')
     mrg_init_transforms = pe.Node(niu.Merge(2), name='mrg_init_transforms')
@@ -217,8 +206,8 @@ N4BiasFieldCorrection.""" % _ants_version, DeprecationWarning)
         wf.connect([
             # resampling, truncation, initial N4, and creation of laplacian
             (inputnode, trunc, [('in_files', 'op1')]),
-            (trunc, res_target, [(('output_image', _pop), 'input_image')]),
-            (res_target, inu_n4, [('output_image', 'input_image')]),
+            (trunc, res_target, [(('output_image', _pop), 'in_file')]),
+            (res_target, inu_n4, [('out_file', 'input_image')]),
 
             # dilation of input mask
             (inputnode, dil_mask, [('in_mask', 'in_file')]),
@@ -226,7 +215,7 @@ N4BiasFieldCorrection.""" % _ants_version, DeprecationWarning)
             # ants AI inputs
             (inu_n4, init_aff, [(('output_image', _pop), 'moving_image')]),
             (dil_mask, init_aff, [('out_file', 'fixed_image_mask')]),
-            (res_tmpl, init_aff, [('output_image', 'fixed_image')]),
+            (res_tmpl, init_aff, [('out_file', 'fixed_image')]),
 
             # warp mask to individual space
             (dil_mask, warp_mask, [('out_file', 'input_image')]),
@@ -241,10 +230,10 @@ N4BiasFieldCorrection.""" % _ants_version, DeprecationWarning)
             (inu_n4_final, lap_target, [(('output_image', _pop), 'op1')]),
             (lap_target, norm_lap_target, [('output_image', 'op1')]),
             (norm_lap_target, mrg_target, [('output_image', 'in2')]),
-            (inu_n4_final, res_target2, [(('output_image', _pop), 'input_image')]),
-            (res_target2, mrg_target, [('output_image', 'in1')]),
+            (inu_n4_final, res_target2, [(('output_image', _pop), 'in_file')]),
+            (res_target2, mrg_target, [('out_file', 'in1')]),
 
-            (res_tmpl, mrg_tmpl, [('output_image', 'in1')]),
+            (res_tmpl, mrg_tmpl, [('out_file', 'in1')]),
             (lap_tmpl, norm_lap_tmpl, [('output_image', 'op1')]),
             (norm_lap_tmpl, mrg_tmpl, [('output_image', 'in2')]),
 
@@ -295,13 +284,13 @@ N4BiasFieldCorrection.""" % _ants_version, DeprecationWarning)
     elif modality == 'mp2rage':
         wf.connect([
             # resampling and creation of laplacians
-            (inputnode, res_target, [('in_files', 'input_image')]),
+            (inputnode, res_target, [('in_files', 'in_file')]),
             (inputnode, lap_target, [('in_files', 'op1')]),
             (lap_target, norm_lap_target, [('output_image', 'op1')]),
             (norm_lap_target, mrg_target, [('output_image', 'in2')]), 
-            (res_target, mrg_target, [('output_image', 'in1')]),
+            (res_target, mrg_target, [('out_file', 'in1')]),
 
-            (res_tmpl, mrg_tmpl, [('output_image', 'in1')]),
+            (res_tmpl, mrg_tmpl, [('out_file', 'in1')]),
             (lap_tmpl, norm_lap_tmpl, [('output_image', 'op1')]),
             (norm_lap_tmpl, mrg_tmpl, [('output_image', 'in2')]),
 
@@ -309,8 +298,8 @@ N4BiasFieldCorrection.""" % _ants_version, DeprecationWarning)
             (inputnode, dil_mask, [('in_mask', 'in_file')]),
 
             # ants AI inputs
-            (res_tmpl, init_aff, [('output_image', 'fixed_image')]),
-            (res_target, init_aff, [('output_image', 'moving_image')]),
+            (res_tmpl, init_aff, [('out_file', 'fixed_image')]),
+            (res_target, init_aff, [('out_file', 'moving_image')]),
             (dil_mask, init_aff, [('out_file', 'fixed_image_mask')]),
 
             # warp mask to individual space
@@ -365,3 +354,19 @@ def _pop(in_files):
     if isinstance(in_files, (list, tuple)):
         return in_files[0]
     return in_files
+
+def res_by_spc(in_file, out_file = None):
+    import os.path as op
+    from niworkflows.utils.images import resample_by_spacing
+    import nibabel as nib
+    resampled = resample_by_spacing(in_file, (0.4, 0.4, 0.4), clip = False)
+
+    if out_file is None:
+        fname, ext = op.splitext(op.basename(in_file))
+        if ext == '.gz':
+            fname, ext2 = op.splitext(fname)
+            ext = ext2 + ext
+        out_file = op.abspath('{}_resampled{}'.format(fname, ext))
+
+    nib.save(resampled, out_file)
+    return out_file
