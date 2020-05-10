@@ -3,29 +3,29 @@
 """Nipype translation of ANTs' workflows."""
 
 # general purpose
-import os
 from multiprocessing import cpu_count
 from pkg_resources import resource_filename as pkgr_fn
-from packaging.version import parse as parseversion, Version
-from warnings import warn
 
 # nipype
 from nipype.pipeline import engine as pe
 from nipype.interfaces import utility as niu
 from nipype.interfaces.ants import N4BiasFieldCorrection, Atropos
-from nipype.interfaces.ants.utils import AI # , ImageMath, ResampleImageBySpacing, 
+from nipype.interfaces.ants.utils import AI
 from nipype.interfaces.afni import MaskTool
 from nipype.interfaces.io import DataSink
 
 # niworkflows
 from niworkflows.interfaces.ants import ImageMath
-from niworkflows.utils.images import resample_by_spacing
+from niworkflows.interfaces.images import RegridToZooms
 from niworkflows.interfaces.nibabel import ApplyMask
 from niworkflows.interfaces.fixes import (
     FixHeaderRegistration as Registration,
     FixHeaderApplyTransforms as ApplyTransforms)
 
 from templateflow.api import get as get_template
+
+LOWRES_ZOOMS = (0.4, 0.4, 0.4)
+
 
 def init_rodent_brain_extraction_wf(
     atropos_model=None,
@@ -71,25 +71,20 @@ def init_rodent_brain_extraction_wf(
     tpl_brain_mask = get_template(in_template, resolution=debug + 1, desc='cerebrum', suffix='mask')
 
     # resample template and target
-    res_tmpl = pe.Node(niu.Function(function=res_by_spc, 
-        input_names=['in_file'], output_names=['out_file']), name='res_tmpl')
-    if tpl_target_path:
-        res_tmpl.inputs.in_file = tpl_target_path
+    res_tmpl = pe.Node(RegridToZooms(
+        in_file=tpl_target_path, zooms=LOWRES_ZOOMS), name="res_tmpl")
 
-    res_target = pe.Node(niu.Function(function=res_by_spc, 
-        input_names=['in_file'], output_names=['out_file']), name='res_target')
-    res_target2 = pe.Node(niu.Function(function=res_by_spc, 
-        input_names=['in_file'], output_names=['out_file']), name='res_target2')
+    res_target = pe.Node(RegridToZooms(zooms=LOWRES_ZOOMS), name="res_target")
+    res_target2 = pe.Node(RegridToZooms(zooms=LOWRES_ZOOMS), name="res_target2")
 
-    dil_mask = pe.Node(MaskTool(), name = 'dil_mask')
-    dil_mask.inputs.outputtype = 'NIFTI_GZ'
-    dil_mask.inputs.dilate_inputs = '2'
-    dil_mask.inputs.fill_holes = True
+    dil_mask = pe.Node(MaskTool(
+        outputtype='NIFTI_GZ', dilate_inputs='2', fill_holes=True),
+        name='dil_mask')
 
     # truncate target intensity for N4 correction
     trunc_opts = {"T1w": "0.005 0.999 256", "T2w": "0.01 0.999 256"}
     trunc = pe.MapNode(ImageMath(operation='TruncateImageIntensity', op2=trunc_opts[bids_suffix]),
-                        name='truncate_images', iterfield=['op1'])
+                       name='truncate_images', iterfield=['op1'])
 
     # Initial N4 correction
     inu_n4 = pe.MapNode(
@@ -104,7 +99,7 @@ def init_rodent_brain_extraction_wf(
     if tpl_target_path:
         lap_tmpl.inputs.op1 = tpl_target_path
     lap_target = pe.Node(ImageMath(operation='Laplacian', op2='0.4'), name='lap_target')
-    
+
     norm_lap_tmpl = pe.Node(ImageMath(operation='Normalize'), name='norm_lap_tmpl')
     norm_lap_target = pe.Node(ImageMath(operation='Normalize'), name='norm_lap_target')
 
@@ -129,9 +124,6 @@ def init_rodent_brain_extraction_wf(
     warp_mask = pe.Node(ApplyTransforms(
         interpolation='Linear', invert_transform_flags=True), name='warp_mask')
 
-    fixed_mask_trait = 'fixed_image_masks'
-    moving_mask_trait = 'moving_image_masks'
-
     # Set up initial spatial normalization
     init_settings_file = f'data/brainextraction_{init_normalization_quality}_{modality}.json'
     init_norm = pe.Node(Registration(from_file=pkgr_fn(
@@ -145,12 +137,12 @@ def init_rodent_brain_extraction_wf(
     inu_n4_final = pe.MapNode(
         N4BiasFieldCorrection(
             dimension=3, save_bias=True, copy_header=True,
-            n_iterations=[50] * 5, convergence_threshold=1e-7, 
+            n_iterations=[50] * 5, convergence_threshold=1e-7,
             bspline_fitting_distance=bspline_fitting_distance,
-            rescale_intensities = True, shrink_factor=4),
+            rescale_intensities=True, shrink_factor=4),
         n_procs=omp_nthreads, name='inu_n4_final', iterfield=['input_image'])
 
-    split_init_transforms = pe.Node(niu.Split(splits=[1,1]), name='split_init_transforms')
+    split_init_transforms = pe.Node(niu.Split(splits=[1, 1]), name='split_init_transforms')
     mrg_init_transforms = pe.Node(niu.Merge(2), name='mrg_init_transforms')
 
     # Use more precise transforms to warp mask to subject space
@@ -159,8 +151,8 @@ def init_rodent_brain_extraction_wf(
         name='warp_mask_final')
 
     # morphological closing of warped mask
-    close_mask = pe.Node(MaskTool(), name = 'close_mask')
-    close_mask.inputs.outputtype = 'NIFTI_GZ' 
+    close_mask = pe.Node(MaskTool(), name='close_mask')
+    close_mask.inputs.outputtype = 'NIFTI_GZ'
     close_mask.inputs.dilate_inputs = '5 -5'
     close_mask.inputs.fill_holes = True
 
@@ -179,7 +171,7 @@ def init_rodent_brain_extraction_wf(
         mem_gb=mem_gb)
     final_norm.inputs.float = use_float
 
-    split_final_transforms = pe.Node(niu.Split(splits=[1,1]), name='split_final_transforms')
+    split_final_transforms = pe.Node(niu.Split(splits=[1, 1]), name='split_final_transforms')
     mrg_final_transforms = pe.Node(niu.Merge(2), name='mrg_final_transforms')
 
     warp_seg_mask = pe.Node(ApplyTransforms(
@@ -188,8 +180,8 @@ def init_rodent_brain_extraction_wf(
     if tpl_brain_mask:
         warp_seg_mask.inputs.input_image = tpl_brain_mask
 
-    warp_seg_labels =pe.Node(ApplyTransforms(
-        interpolation='Linear', invert_transform_flags=[False, True]), 
+    warp_seg_labels = pe.Node(ApplyTransforms(
+        interpolation='Linear', invert_transform_flags=[False, True]),
         name='warp_seg_labels')
     if tpl_tissue_labels:
         warp_seg_labels.inputs.input_image = tpl_tissue_labels
@@ -287,7 +279,7 @@ def init_rodent_brain_extraction_wf(
             (inputnode, res_target, [('in_files', 'in_file')]),
             (inputnode, lap_target, [('in_files', 'op1')]),
             (lap_target, norm_lap_target, [('output_image', 'op1')]),
-            (norm_lap_target, mrg_target, [('output_image', 'in2')]), 
+            (norm_lap_target, mrg_target, [('output_image', 'in2')]),
             (res_target, mrg_target, [('out_file', 'in1')]),
 
             (res_tmpl, mrg_tmpl, [('out_file', 'in1')]),
@@ -309,7 +301,7 @@ def init_rodent_brain_extraction_wf(
 
             # normalisation inputs
             (mrg_tmpl, init_norm, [('out', 'fixed_image')]),
-            (mrg_target, init_norm, [('out', 'moving_image')]),    
+            (mrg_target, init_norm, [('out', 'moving_image')]),
             (dil_mask, init_norm, [('out_file', 'fixed_image_masks')]),
             (warp_mask, init_norm, [('output_image', 'moving_image_masks')]),
             (init_aff, init_norm, [('output_transform', 'initial_moving_transform')]),
@@ -347,26 +339,10 @@ def init_rodent_brain_extraction_wf(
             (skullstrip_tar, segment, [('out_file', 'intensity_images')]),
             (warp_seg_labels, segment, [('output_image', 'prior_image')]),
             (warp_seg_mask, segment, [('output_image', 'mask_image')]),
-            ])
+        ])
         return wf
 
 def _pop(in_files):
     if isinstance(in_files, (list, tuple)):
         return in_files[0]
     return in_files
-
-def res_by_spc(in_file, out_file = None):
-    import os.path as op
-    from niworkflows.utils.images import resample_by_spacing
-    import nibabel as nib
-    resampled = resample_by_spacing(in_file, (0.4, 0.4, 0.4), clip = False)
-
-    if out_file is None:
-        fname, ext = op.splitext(op.basename(in_file))
-        if ext == '.gz':
-            fname, ext2 = op.splitext(fname)
-            ext = ext2 + ext
-        out_file = op.abspath('{}_resampled{}'.format(fname, ext))
-
-    nib.save(resampled, out_file)
-    return out_file
