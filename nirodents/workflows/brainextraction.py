@@ -61,8 +61,8 @@ def init_rodent_brain_extraction_wf(
                         name='inputnode')
 
     # Find images in templateFlow
-    tpl_target_path = get_template(in_template, resolution=debug + 1, suffix="T2star" if bids_suffix == "T2w" else "T1w")
-    tpl_regmask_path = get_template(in_template, resolution=debug + 1, atlas='v3', desc='brain', suffix='mask')
+    tpl_target_path = get_template(in_template, resolution=debug + 1, suffix=tpl_suffix)
+    tpl_regmask_path = get_template(in_template, resolution=debug + 1, atlas=None, desc='brain', suffix='mask')
     if tpl_regmask_path:
         inputnode.inputs.in_mask = str(tpl_regmask_path)
     tpl_tissue_labels = get_template(in_template,resolution=debug + 1, desc='cerebrum', suffix='dseg')
