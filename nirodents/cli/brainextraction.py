@@ -12,18 +12,42 @@ def get_parser():
         description="""\
 artsBrainExtraction -- Atlas-based brain extraction tool of the \
 ANTs-based Rodents ToolS (ARTs) package.\
-""", formatter_class=ArgumentDefaultsHelpFormatter)
+""",
+        formatter_class=ArgumentDefaultsHelpFormatter,
+    )
 
-    parser.add_argument("input_image", action="store", type=Path,
-                        help="The target image for brain extraction.")
-    parser.add_argument("--version", action="version",
-                        version="artsBrainExtraction v{}".format(__version__))
-    parser.add_argument("--template", action="store", choices=("WHS", ), default="WHS",
-                        help="The TemplateFlow ID of the reference template.")
-    parser.add_argument("--omp-nthreads", action="store", type=int, default=cpu_count(),
-                        help="Number of CPUs available for multithreading processes.")
-    parser.add_argument("--nprocs", action="store", type=int, default=cpu_count(),
-                        help="Number of processes that can be run in parallel.")
+    parser.add_argument(
+        "input_image",
+        action="store",
+        type=Path,
+        help="The target image for brain extraction.",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version="artsBrainExtraction v{}".format(__version__),
+    )
+    parser.add_argument(
+        "--template",
+        action="store",
+        choices=("WHS",),
+        default="WHS",
+        help="The TemplateFlow ID of the reference template.",
+    )
+    parser.add_argument(
+        "--omp-nthreads",
+        action="store",
+        type=int,
+        default=cpu_count(),
+        help="Number of CPUs available for multithreading processes.",
+    )
+    parser.add_argument(
+        "--nprocs",
+        action="store",
+        type=int,
+        default=cpu_count(),
+        help="Number of processes that can be run in parallel.",
+    )
     parser.add_argument(
         "-m",
         "--mri-scheme",
@@ -31,7 +55,7 @@ ANTs-based Rodents ToolS (ARTs) package.\
         type=str,
         default="T2w",
         choices=("T2w", "T1w"),
-        help="select a particular MRI scheme"
+        help="select a particular MRI scheme",
     )
     parser.add_argument(
         "-w",
@@ -76,6 +100,8 @@ def main():
 
 
 if __name__ == "__main__":
-    raise RuntimeError("""\
+    raise RuntimeError(
+        """\
 nirodents/cli/brainextraction.py should not be run directly;
-Please `pip install` nirodents and use the `artsBrainExtraction` command.""")
+Please `pip install` nirodents and use the `artsBrainExtraction` command."""
+    )
