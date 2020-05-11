@@ -37,11 +37,9 @@ def init_rodent_brain_extraction_wf(
     final_normalization_quality='precise',
     in_template='WHS',
     init_normalization_quality='3stage',
-    modality='T2w',
     mem_gb=3.0,
     name='rodent_brain_extraction_wf',
     omp_nthreads=None,
-    tpl_suffix='T2star',
     template_spec=None,
     use_float=True,
 ):
@@ -63,7 +61,7 @@ def init_rodent_brain_extraction_wf(
                         name='inputnode')
 
     # Find images in templateFlow
-    tpl_target_path = get_template(in_template, resolution=debug + 1, suffix=tpl_suffix)
+    tpl_target_path = get_template(in_template, resolution=debug + 1, suffix="T2star" if bids_suffix == "T2w" else "T1w")
     tpl_regmask_path = get_template(in_template, resolution=debug + 1, atlas='v3', desc='brain', suffix='mask')
     if tpl_regmask_path:
         inputnode.inputs.in_mask = str(tpl_regmask_path)
@@ -125,7 +123,7 @@ def init_rodent_brain_extraction_wf(
         interpolation='Linear', invert_transform_flags=True), name='warp_mask')
 
     # Set up initial spatial normalization
-    init_settings_file = f'data/brainextraction_{init_normalization_quality}_{modality}.json'
+    init_settings_file = f'data/brainextraction_{init_normalization_quality}_{bids_suffix}.json'
     init_norm = pe.Node(Registration(from_file=pkgr_fn(
         'nirodents', init_settings_file)),
         name='init_norm',
@@ -163,7 +161,7 @@ def init_rodent_brain_extraction_wf(
         skullstrip_tpl.inputs.in_file = tpl_target_path
 
     # Normalise skull-stripped image to brain template
-    final_settings_file = f'data/brainextraction_{final_normalization_quality}_{modality}.json'
+    final_settings_file = f'data/brainextraction_{final_normalization_quality}_{bids_suffix}.json'
     final_norm = pe.Node(Registration(from_file=pkgr_fn(
         'nirodents', final_settings_file)),
         name='final_norm',
@@ -194,7 +192,7 @@ def init_rodent_brain_extraction_wf(
 
     sinker = pe.Node(DataSink(), name='sinker')
 
-    if modality.lower() == 't2w':
+    if bids_suffix.lower() == 't2w':
         wf.connect([
             # resampling, truncation, initial N4, and creation of laplacian
             (inputnode, trunc, [('in_files', 'op1')]),
@@ -273,7 +271,7 @@ def init_rodent_brain_extraction_wf(
         ])
         return wf
 
-    elif modality == 'mp2rage':
+    elif bids_suffix == 't1w':
         wf.connect([
             # resampling and creation of laplacians
             (inputnode, res_target, [('in_files', 'in_file')]),
