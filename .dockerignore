@@ -1,0 +1,6 @@
+.circleci/
+.maint/
+docs/
+.gitignore
+.mailmap
+.travis.yml
