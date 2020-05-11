@@ -258,26 +258,27 @@ def init_rodent_brain_extraction_wf(
 
     # workflow definitions
     # target image specific workflows
-    tar_prep = pe.Workflow("tar_prep")
+    wf = pe.Workflow(name)
     if bids_suffix.lower() == "t2w":
-        tar_prep.connect([
-            # truncation, resampling, and initial N4
-            (inputnode, trunc, [("in_files", "op1")]),
-            (trunc, res_target, [(("output_image", _pop), "in_file")]),
-            (res_target, inu_n4, [("out_file", "input_image")]),
-            (inu_n4, integrate_1, [(("output_image", _pop), "in_file")]),
-            # masked N4 correction
-            (trunc, inu_n4_final, [(("output_image", _pop), "input_image")]),
-            (inu_n4_final, integrate_2, [(("output_image", _pop), "in_file")]),
+        wf.connect([
             # merge laplacian and original images
             (inu_n4_final, lap_target, [(("output_image", _pop), "op1")]),
             (lap_target, norm_lap_target, [("output_image", "op1")]),
             (norm_lap_target, mrg_target, [("output_image", "in2")]),
             (inu_n4_final, res_target2, [(("output_image", _pop), "in_file")]),
             (res_target2, mrg_target, [("out_file", "in1")]),
+            # truncation, resampling, and initial N4
+            (inputnode, trunc, [("in_files", "op1")]),
+            (trunc, res_target, [(("output_image", _pop), "in_file")]),
+            (res_target, inu_n4, [("out_file", "input_image")]),
+            (inu_n4, integrate_1, [(("output_image", _pop), "in_file")]),
+            # masked N4 correction
+            (warp_mask_1, inu_n4_final, [("output_image", "weight_image")]),
+            (trunc, inu_n4_final, [(("output_image", _pop), "input_image")]),
+            (inu_n4_final, integrate_2, [(("output_image", _pop), "in_file")])
         ])
     elif bids_suffix == "t1w":
-        tar_prep.connect([
+        wf.connect([
             # resampling and laplacian; no truncation or N4
             (inputnode, res_target, [("in_files", "in_file")]),
             (inputnode, lap_target, [("in_files", "op1")]),
@@ -285,11 +286,10 @@ def init_rodent_brain_extraction_wf(
             (norm_lap_target, mrg_target, [("output_image", "in2")]),
             (res_target, mrg_target, [("out_file", "in1")]),
             (res_target, integrate_1, [("out_file", "in_file")]),
-            (inputnode, integrate_2, [("in_files", "in_file")]),
+            (inputnode, integrate_2, [("in_files", "in_file")])
         ])
 
     # main workflow
-    wf = pe.Workflow(name)
     wf.connect([
         # template prep: dilation of input mask, resampling template, laplacian creation
         (inputnode, dil_mask, [("in_mask", "in_file")]),
@@ -297,7 +297,7 @@ def init_rodent_brain_extraction_wf(
         (lap_tmpl, norm_lap_tmpl, [("output_image", "op1")]),
         (norm_lap_tmpl, mrg_tmpl, [("output_image", "in2")]),
         # ants AI inputs
-        (tar_prep, init_aff, [("integrate_1.in_file", "moving_image")]),
+        (integrate_1, init_aff, [("in_file", "moving_image")]),
         (dil_mask, init_aff, [("out_file", "fixed_image_mask")]),
         (res_tmpl, init_aff, [("out_file", "fixed_image")]),
         # warp mask to individual space
@@ -309,18 +309,18 @@ def init_rodent_brain_extraction_wf(
         (warp_mask_1, init_norm, [("output_image", "moving_image_masks")]),
         (dil_mask, init_norm, [("out_file", "fixed_image_masks")]),
         (mrg_tmpl, init_norm, [("out", "fixed_image")]),
-        (tar_prep, init_norm, [("mrg_target.out", "moving_image")]),
+        (mrg_target, init_norm, [("out", "moving_image")]),
         # organise initial normalisation transforms for warps
         (init_norm, split_init_transforms, [("reverse_transforms", "inlist")]),
         (split_init_transforms, mrg_init_transforms, [("out2", "in1")]),
         (split_init_transforms, mrg_init_transforms, [("out1", "in2")]),
         # warp mask with initial normalisation transforms
-        (tar_prep, warp_mask_2, [("integrate_2.in_file", "reference_image")]),
+        (integrate_2, warp_mask_2, [("in_file", "reference_image")]),
         (dil_mask, warp_mask_2, [("out_file", "input_image")]),
         (mrg_init_transforms, warp_mask_2, [("out", "transforms")]),
         (warp_mask_2, close_mask, [("output_image", "in_file")]),
         # mask brains for refined normalisation
-        (tar_prep, skullstrip_tar, [("integrate_2.in_file", "in_file")]),
+        (integrate_2, skullstrip_tar, [("in_file", "in_file")]),
         (close_mask, skullstrip_tar, [("out_file", "in_mask")]),
         (inputnode, skullstrip_tpl, [("in_mask", "in_mask")]),
         # refined normalisation
@@ -333,27 +333,20 @@ def init_rodent_brain_extraction_wf(
         # warp mask to subject space and write out
         (mrg_final_transforms, warp_mask_out, [("out", "transforms")]),
         (skullstrip_tar, warp_mask_out, [("out_file", "reference_image")]),
-        (warp_mask_out, sinker, [("output_image", "derivatives.@out_mask")]),
+        (warp_mask_out, sinker, [("output_image", "derivatives.@out_mask")])
     ])
-    # add second target prep stage if necessary
-    if bids_suffix.lower() == "t2w":
-        wf.connect(
-            [(warp_mask_1, tar_prep, [("output_image", "inu_n4_final.weight_image")])]
-        )
 
     # add segmentation if necessary
     if atropos_model:
-        wf.connect(
-            [
-                # Warp labels to subject-space
-                (mrg_final_transforms, warp_seg_labels, [("out", "transforms")]),
-                (skullstrip_tar, warp_seg_labels, [("out_file", "reference_image")]),
-                # Segmentation
-                (skullstrip_tar, segment, [("out_file", "intensity_images")]),
-                (warp_seg_labels, segment, [("output_image", "prior_image")]),
-                (warp_mask_out, segment, [("output_image", "mask_image")]),
-            ]
-        )
+        wf.connect([
+            # Warp labels to subject-space
+            (mrg_final_transforms, warp_seg_labels, [("out", "transforms")]),
+            (skullstrip_tar, warp_seg_labels, [("out_file", "reference_image")]),
+            # Segmentation
+            (skullstrip_tar, segment, [("out_file", "intensity_images")]),
+            (warp_seg_labels, segment, [("output_image", "prior_image")]),
+            (warp_mask_out, segment, [("output_image", "mask_image")])
+        ])
 
     return wf
 
