@@ -151,10 +151,8 @@ def init_rodent_brain_extraction_wf(
         name='warp_mask_final')
 
     # morphological closing of warped mask
-    close_mask = pe.Node(MaskTool(), name='close_mask')
-    close_mask.inputs.outputtype = 'NIFTI_GZ'
-    close_mask.inputs.dilate_inputs = '5 -5'
-    close_mask.inputs.fill_holes = True
+    close_mask = pe.Node(MaskTool(outputtype='NIFTI_GZ', dilate_inputs='5 -5', fill_holes=True),
+        name='close_mask')
 
     # Use subject-space mask to skull-strip subject
     skullstrip_tar = pe.Node(ApplyMask(), name='skullstrip_tar')
