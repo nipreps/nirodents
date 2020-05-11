@@ -261,17 +261,17 @@ def init_rodent_brain_extraction_wf(
     wf = pe.Workflow(name)
     if bids_suffix.lower() == "t2w":
         wf.connect([
+            # truncation, resampling, and initial N4
+            (inputnode, trunc, [("in_files", "op1")]),
+            (trunc, res_target, [(("output_image", _pop), "in_file")]),
+            (res_target, inu_n4, [("out_file", "input_image")]),
+            (inu_n4, integrate_1, [(("output_image", _pop), "in_file")]),
             # merge laplacian and original images
             (inu_n4_final, lap_target, [(("output_image", _pop), "op1")]),
             (lap_target, norm_lap_target, [("output_image", "op1")]),
             (norm_lap_target, mrg_target, [("output_image", "in2")]),
             (inu_n4_final, res_target2, [(("output_image", _pop), "in_file")]),
             (res_target2, mrg_target, [("out_file", "in1")]),
-            # truncation, resampling, and initial N4
-            (inputnode, trunc, [("in_files", "op1")]),
-            (trunc, res_target, [(("output_image", _pop), "in_file")]),
-            (res_target, inu_n4, [("out_file", "input_image")]),
-            (inu_n4, integrate_1, [(("output_image", _pop), "in_file")]),
             # masked N4 correction
             (warp_mask_1, inu_n4_final, [("output_image", "weight_image")]),
             (trunc, inu_n4_final, [(("output_image", _pop), "input_image")]),
