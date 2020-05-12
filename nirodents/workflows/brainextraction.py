@@ -211,8 +211,8 @@ def init_rodent_brain_extraction_wf(
         ])
 
     # Spatial normalization step
-    lap_tmpl = pe.Node(ImageMath(operation="Laplacian", op2="0.4 1.0"), name="lap_tmpl")
-    lap_target = pe.Node(ImageMath(operation="Laplacian", op2="0.4 1.0"), name="lap_target")
+    lap_tmpl = pe.Node(ImageMath(operation="Laplacian", op2="0.4 1"), name="lap_tmpl")
+    lap_target = pe.Node(ImageMath(operation="Laplacian", op2="0.4 1"), name="lap_target")
 
     # Merge image nodes
     mrg_target = pe.Node(niu.Merge(2), name="mrg_target")
