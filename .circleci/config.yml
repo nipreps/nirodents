@@ -130,14 +130,18 @@ jobs:
           name: Run on example dataset
           no_output_timeout: 60m
           command: |
-            mkdir -p /tmp/templateflow /tmp/workdir
+            mkdir -p /tmp/templateflow /tmp/workdir /tmp/results
             docker run -u $( id -u ) --rm -it -v /tmp/templateflow:/home/nirodents/.cache/templateflow \
-                -v $PWD/nirodents/data:/data -v /tmp/workdir:/work -w /work nirodents:latest \
-                artsBrainExtraction /data/15_1_T2_Quick_RAS.nii.gz --sloppy
+                -v $PWD/nirodents/data:/data -v /tmp/workdir:/work -w /work -v /tmp/results:/out \
+                nirodents:latest \
+                artsBrainExtraction /data/15_1_T2_Quick_RAS.nii.gz -o /out --sloppy
       - save_cache:
           key: templateflow-v1-{{ .Branch }}-{{ epoch }}
           paths:
             - /tmp/templateflow
+      - store_artifacts:
+          path: /tmp/results
+          destination: results
       - store_artifacts:
           path: /tmp/workdir
           destination: interim
