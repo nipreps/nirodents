@@ -40,15 +40,14 @@ def init_rodent_brain_extraction_wf(
     bids_suffix="T2w",
     bspline_fitting_distance=8,
     debug=False,
-    final_normalization_quality="precise",
     in_template="WHS",
-    init_normalization_quality="3stage",
+    interim_checkpoints=True,
     mem_gb=3.0,
     name="rodent_brain_extraction_wf",
     omp_nthreads=None,
+    output_dir=None,
     template_spec=None,
     use_float=True,
-    interim_checkpoints=True,
 ):
     """
     Build an atlas-based brain extraction pipeline for rodent T1w and T2w MRI data.
@@ -141,7 +140,7 @@ def init_rodent_brain_extraction_wf(
                 n_iterations=[50] * (4 - debug),
                 convergence_threshold=1e-7,
                 shrink_factor=4,
-                bspline_fitting_distance=bspline_fitting_distance,
+                bspline_fitting_distance=8,
             ),
             n_procs=omp_nthreads,
             name="init_n4",
@@ -243,6 +242,8 @@ def init_rodent_brain_extraction_wf(
 
     thr_brainmask = pe.Node(Binarize(thresh_low=0.5),
                             name="thr_brainmask")
+    bspline_grid = pe.Node(niu.Function(function=_bspline_distance),
+                           name="bspline_grid")
 
     # Refine INU correction
     final_n4 = pe.Node(
@@ -252,7 +253,6 @@ def init_rodent_brain_extraction_wf(
             copy_header=True,
             n_iterations=[50] * 5,
             convergence_threshold=1e-7,
-            bspline_fitting_distance=bspline_fitting_distance,
             rescale_intensities=True,
             shrink_factor=4,
         ),
@@ -264,6 +264,9 @@ def init_rodent_brain_extraction_wf(
     wf.connect([
         (inputnode, map_brainmask, [(("in_files", _pop), "reference_image")]),
         (inputnode, final_n4, [(("in_files", _pop), "input_image")]),
+        (inputnode, bspline_grid, [(("in_files", _pop), "in_file")]),
+        # (bspline_grid, final_n4, [("out", "bspline_fitting_distance")]),
+        (bspline_grid, final_n4, [("out", "args")]),
         # merge laplacian and original images
         (buffernode, lap_target, [("hires_target", "op1")]),
         (buffernode, mrg_target, [("hires_target", "in1")]),
@@ -283,9 +286,9 @@ def init_rodent_brain_extraction_wf(
         # take a second pass of N4
         (map_brainmask, final_n4, [("output_image", "weight_image")]),
         (final_n4, final_mask, [("output_image", "in_file")]),
-        (thr_brainmask, final_mask, [("out_file", "in_mask")]),
+        (thr_brainmask, final_mask, [("out_mask", "in_mask")]),
         (final_n4, outputnode, [("output_image", "out_corrected")]),
-        (thr_brainmask, outputnode, [("out_file", "out_mask")]),
+        (thr_brainmask, outputnode, [("out_mask", "out_mask")]),
         (final_mask, outputnode, [("out_file", "out_brain")]),
     ])
 
@@ -337,6 +340,23 @@ def init_rodent_brain_extraction_wf(
                                         ("out_mask", "wm_seg")]),
         ])
 
+    if output_dir:
+        from nipype.interfaces.io import DataSink
+        ds_final_inu = pe.Node(DataSink(base_directory=str(output_dir.parent)),
+                               name="ds_final_inu")
+        ds_final_msk = pe.Node(DataSink(base_directory=str(output_dir.parent)),
+                               name="ds_final_msk")
+        ds_report = pe.Node(DataSink(base_directory=str(output_dir.parent)),
+                            name="ds_report")
+
+        wf.connect([
+            (outputnode, ds_final_inu, [
+                ("out_corrected", f"{output_dir.name}.@inu_corrected")]),
+            (outputnode, ds_final_msk, [
+                ("out_mask", f"{output_dir.name}.@brainmask")]),
+            (final_report, ds_report, [
+                ("out_report", f"{output_dir.name}.@report")]),
+        ])
     return wf
 
 
@@ -344,3 +364,13 @@ def _pop(in_files):
     if isinstance(in_files, (list, tuple)):
         return in_files[0]
     return in_files
+
+
+def _bspline_distance(in_file, spacings=(8, 2, 8)):
+    import numpy as np
+    import nibabel as nb
+
+    img = nb.load(in_file)
+    extent = (np.array(img.shape[:3]) - 1) * img.header.get_zooms()[:3]
+    retval = [f"{v}" for v in np.ceil(extent / np.array(spacings)).astype(int)]
+    return f"-b {'x'.join(retval)}"

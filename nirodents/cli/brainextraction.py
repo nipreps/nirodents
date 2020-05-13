@@ -58,6 +58,14 @@ ANTs-based Rodents ToolS (ARTs) package.\
         help="select a particular MRI scheme",
     )
     parser.add_argument(
+        "-o",
+        "--output-dir",
+        action="store",
+        type=Path,
+        default=Path("results").absolute(),
+        help="path where intermediate results should be stored",
+    )
+    parser.add_argument(
         "-w",
         "--work-dir",
         action="store",
@@ -77,17 +85,21 @@ ANTs-based Rodents ToolS (ARTs) package.\
 
 def main():
     """Entry point."""
+    from templateflow import update as update_templateflow
     from ..workflows.brainextraction import init_rodent_brain_extraction_wf
 
     opts = get_parser().parse_args()
+    update_templateflow(overwrite=False)
     be = init_rodent_brain_extraction_wf(
         in_template=opts.template,
         bids_suffix=opts.mri_scheme,
         omp_nthreads=opts.omp_nthreads,
         debug=opts.debug,
+        output_dir=opts.output_dir,
     )
     be.base_dir = opts.work_dir
     be.inputs.inputnode.in_files = opts.input_image
+
     nipype_plugin = {"plugin": "Linear"}
     if opts.nprocs > 1:
         nipype_plugin["plugin"] = "MultiProc"
