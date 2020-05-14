@@ -91,10 +91,10 @@ def main():
     opts = get_parser().parse_args()
     update_templateflow(overwrite=False)
     be = init_rodent_brain_extraction_wf(
-        in_template=opts.template,
-        bids_suffix=opts.mri_scheme,
-        omp_nthreads=opts.omp_nthreads,
         debug=opts.debug,
+        in_template=opts.template,
+        mri_scheme=opts.mri_scheme,
+        omp_nthreads=opts.omp_nthreads,
         output_dir=opts.output_dir,
     )
     be.base_dir = opts.work_dir

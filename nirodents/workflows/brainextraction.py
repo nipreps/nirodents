@@ -34,19 +34,16 @@ HIRES_ZOOMS = (0.1, 0.1, 0.1)
 
 
 def init_rodent_brain_extraction_wf(
-    atropos_model=None,
-    atropos_refine=True,
-    atropos_use_random_seed=True,
-    bids_suffix="T2w",
+    ants_affine_init=False,
     bspline_fitting_distance=8,
     debug=False,
     in_template="WHS",
     interim_checkpoints=True,
     mem_gb=3.0,
+    mri_scheme="T2w",
     name="rodent_brain_extraction_wf",
     omp_nthreads=None,
     output_dir=None,
-    template_spec=None,
     use_float=True,
 ):
     """
@@ -54,8 +51,8 @@ def init_rodent_brain_extraction_wf(
 
     Parameters
     ----------
-    atropos_refine : :obj:`bool`, optional
-        Run an extra step to refine the brain mask using a brain-tissue segmentation with Atropos.
+    ants_affine_init : :obj:`bool`, optional
+        Set-up a pre-initialization step with ``antsAI`` to account for mis-oriented images.
 
     """
     inputnode = pe.Node(
@@ -70,11 +67,11 @@ def init_rodent_brain_extraction_wf(
     tpl_target_path = get_template(
         in_template,
         resolution=2,
-        suffix="T2star" if bids_suffix == "T2w" else "T1w",
+        suffix="T2star" if mri_scheme == "T2w" else "T1w",
     )
     if not tpl_target_path:
         raise RuntimeError(
-            f"An instance of template <tpl-{in_template}> with MR scheme '{bids_suffix}'"
+            f"An instance of template <tpl-{in_template}> with MR scheme '{mri_scheme}'"
             " could not be found.")
 
     tpl_brainmask_path = get_template(
@@ -85,115 +82,101 @@ def init_rodent_brain_extraction_wf(
             in_template, resolution=2, atlas=None, desc="brain", suffix="mask",
         )
 
+    tpl_regmask_path = get_template(
+        in_template, resolution=2, atlas=None, desc="BrainCerebellumExtraction", suffix="mask",
+    )
+
     # Resample both target and template to a controlled, isotropic resolution
     res_tmpl = pe.Node(RegridToZooms(zooms=HIRES_ZOOMS), name="res_tmpl")
     res_target = pe.Node(RegridToZooms(zooms=HIRES_ZOOMS), name="res_target")
-    lowres_tmpl = pe.Node(RegridToZooms(zooms=LOWRES_ZOOMS), name="lowres_tmpl")
-    lowres_target = pe.Node(RegridToZooms(zooms=LOWRES_ZOOMS), name="lowres_target")
     gauss_tmpl = pe.Node(niu.Function(function=_gauss_filter), name="gauss_tmpl")
-    gauss_tmpl.inputs.sigma = tuple(np.array(LOWRES_ZOOMS) * 8.0)
+    gauss_tmpl.inputs.sigma = tuple(np.array(LOWRES_ZOOMS) * 10.0)
 
-    # Initialize transforms with antsAI
-    init_aff = pe.Node(
-        AI(
-            metric=("Mattes", 32, "Regular", 1.0),
-            transform=("Affine", 0.1),
-            search_factor=(10, 0.08),
-            principal_axes=False,
-            convergence=(40, 1e-6, 10),
-            search_grid=(25, (0, 0, 0)),
-            verbose=True,
+    # Spatial normalization step
+    lap_tmpl = pe.Node(ImageMath(operation="Laplacian", op2="0.4 1"), name="lap_tmpl")
+    lap_target = pe.Node(ImageMath(operation="Laplacian", op2="0.4 1"), name="lap_target")
+
+    # Merge image nodes
+    mrg_target = pe.Node(niu.Merge(2), name="mrg_target")
+    mrg_tmpl = pe.Node(niu.Merge(2), name="mrg_tmpl")
+
+    norm_lap_tmpl = pe.Node(niu.Function(function=_trunc), name="norm_lap_tmpl")
+    norm_lap_tmpl.inputs.dtype = "float32"
+    norm_lap_tmpl.inputs.out_max = 1.0
+    norm_lap_tmpl.inputs.percentile = (0.01, 99.99)
+    norm_lap_tmpl.inputs.clip_max = None
+
+    norm_lap_target = pe.Node(niu.Function(function=_trunc), name="norm_lap_target")
+    norm_lap_target.inputs.dtype = "float32"
+    norm_lap_target.inputs.out_max = 1.0
+    norm_lap_target.inputs.percentile = (0.01, 99.99)
+    norm_lap_target.inputs.clip_max = None
+
+    # Set up initial spatial normalization
+    ants_params = "testing" if debug else "precise"
+    norm = pe.Node(
+        Registration(from_file=pkgr_fn(
+            "nirodents",
+            f"data/artsBrainExtraction_{ants_params}_{mri_scheme}.json")
         ),
-        name="init_aff",
+        name="norm",
         n_procs=omp_nthreads,
+        mem_gb=mem_gb,
     )
+    norm.inputs.float = use_float
 
     # main workflow
     wf = pe.Workflow(name)
     # Create a buffer interface as a cache for the actual inputs to registration
     buffernode = pe.Node(niu.IdentityInterface(
-        fields=["lowres_target", "hires_target"]), name="buffernode")
+        fields=["hires_target", "smooth_target"]), name="buffernode")
 
-    if bids_suffix.lower() == "t2w":
-        mask_tmpl = pe.Node(
-            ApplyMask(
-                in_file=_pop(tpl_target_path),
-                in_mask=_pop(tpl_brainmask_path),
-            ),
-            name="mask_tmpl",
-        )
-        # truncate target intensity for N4 correction
-        clip_target = pe.Node(
-            niu.Function(function=_trunc),
-            name="clip_target",
-        )
-        clip_tmpl = pe.Node(
-            niu.Function(function=_trunc),
-            name="clip_tmpl",
-        )
-        # INU correction of the target image
-        init_n4 = pe.Node(
-            N4BiasFieldCorrection(
-                dimension=3,
-                save_bias=False,
-                copy_header=True,
-                n_iterations=[50] * (4 - debug),
-                convergence_threshold=1e-7,
-                shrink_factor=4,
-                bspline_fitting_distance=8,
-            ),
-            n_procs=omp_nthreads,
-            name="init_n4",
-        )
-        clip_inu = pe.Node(
-            niu.Function(function=_trunc),
-            name="clip_inu",
-        )
-        gauss_target = pe.Node(niu.Function(function=_gauss_filter), name="gauss_target")
-        gauss_target.inputs.sigma = tuple(np.array(LOWRES_ZOOMS) * 2.0)
-        wf.connect([
-            # truncation, resampling, and initial N4
-            (inputnode, res_target, [(("in_files", _pop), "in_file")]),
-            (mask_tmpl, clip_tmpl, [("out_file", "in_file")]),
-            (res_target, clip_target, [("out_file", "in_file")]),
-            (clip_tmpl, res_tmpl, [("out", "in_file")]),
-            (clip_target, init_n4, [("out", "input_image")]),
-            (init_n4, clip_inu, [("output_image", "in_file")]),
-            (clip_inu, gauss_target, [("out", "in_file")]),
-            (gauss_target, lowres_target, [("out", "in_file")]),
-            (lowres_target, buffernode, [("out_file", "lowres_target")]),
-            (clip_inu, buffernode, [("out", "hires_target")]),
-        ])
-    elif bids_suffix == "t1w":
-        wf.connect([
-            # resampling and laplacian; no truncation or N4
-            (inputnode, res_target, [("in_files", "in_file")]),
-            (res_target, buffernode, [("out_file", "lowres_target")]),
-        ])
+    # truncate target intensity for N4 correction
+    clip_target = pe.Node(
+        niu.Function(function=_trunc),
+        name="clip_target",
+    )
+    clip_tmpl = pe.Node(
+        niu.Function(function=_trunc),
+        name="clip_tmpl",
+    )
+    clip_tmpl.inputs.in_file = _pop(tpl_target_path)
 
+    # INU correction of the target image
+    init_n4 = pe.Node(
+        N4BiasFieldCorrection(
+            dimension=3,
+            save_bias=False,
+            copy_header=True,
+            n_iterations=[50] * (4 - debug),
+            convergence_threshold=1e-7,
+            shrink_factor=4,
+            bspline_fitting_distance=8,
+        ),
+        n_procs=omp_nthreads,
+        name="init_n4",
+    )
+    clip_inu = pe.Node(
+        niu.Function(function=_trunc),
+        name="clip_inu",
+    )
+    gauss_target = pe.Node(niu.Function(function=_gauss_filter), name="gauss_target")
+    gauss_target.inputs.sigma = tuple(np.array(LOWRES_ZOOMS) * 8.0)
     wf.connect([
-        # ants AI inputs
-        (buffernode, init_aff, [("lowres_target", "moving_image")]),
+        # truncation, resampling, and initial N4
+        (inputnode, res_target, [(("in_files", _pop), "in_file")]),
+        (res_target, clip_target, [("out_file", "in_file")]),
+        (clip_tmpl, res_tmpl, [("out", "in_file")]),
+        (clip_target, init_n4, [("out", "input_image")]),
+        (init_n4, clip_inu, [("output_image", "in_file")]),
+        (clip_inu, gauss_target, [("out", "in_file")]),
+        (clip_inu, buffernode, [("out", "hires_target")]),
+        (gauss_target, buffernode, [("out", "smooth_target")]),
         (res_tmpl, gauss_tmpl, [("out_file", "in_file")]),
-        (gauss_tmpl, lowres_tmpl, [("out", "in_file")]),
-        (lowres_tmpl, init_aff, [("out_file", "fixed_image")]),
     ])
 
     # Graft a template registration-mask if present
-    tpl_regmask_path = get_template(
-        in_template, resolution=2, atlas=None, desc="BrainCerebellumExtraction", suffix="mask",
-    )
     if tpl_regmask_path:
-        lowres_mask = pe.Node(
-            ApplyTransforms(
-                input_image=_pop(tpl_regmask_path),
-                transforms="identity",
-                interpolation="MultiLabel",
-                float=True),
-            name="lowres_mask",
-            mem_gb=1
-        )
-
         hires_mask = pe.Node(
             ApplyTransforms(
                 input_image=_pop(tpl_regmask_path),
@@ -204,34 +187,8 @@ def init_rodent_brain_extraction_wf(
             mem_gb=1
         )
         wf.connect([
-            (lowres_tmpl, lowres_mask, [("out_file", "reference_image")]),
-            (lowres_mask, init_aff, [("output_image", "fixed_image_mask")]),
             (res_tmpl, hires_mask, [("out_file", "reference_image")]),
         ])
-
-    # Spatial normalization step
-    lap_tmpl = pe.Node(ImageMath(operation="Laplacian", op2="0.4 1"), name="lap_tmpl")
-    lap_target = pe.Node(ImageMath(operation="Laplacian", op2="0.4 1"), name="lap_target")
-
-    # Merge image nodes
-    mrg_target = pe.Node(niu.Merge(2), name="mrg_target")
-    mrg_tmpl = pe.Node(niu.Merge(2), name="mrg_tmpl")
-
-    # norm_lap_tmpl = pe.Node(ImageMath(operation="Normalize"), name="norm_lap_tmpl")
-    # norm_lap_target = pe.Node(ImageMath(operation="Normalize"), name="norm_lap_target")
-
-    # Set up initial spatial normalization
-    ants_params = "testing" if debug else "precise"
-    norm = pe.Node(
-        Registration(from_file=pkgr_fn(
-            "nirodents",
-            f"data/artsBrainExtraction_{ants_params}_{bids_suffix}.json")
-        ),
-        name="norm",
-        n_procs=omp_nthreads,
-        mem_gb=mem_gb,
-    )
-    norm.inputs.float = use_float
 
     map_brainmask = pe.Node(
         ApplyTransforms(interpolation="Gaussian", float=True),
@@ -240,7 +197,7 @@ def init_rodent_brain_extraction_wf(
     )
     map_brainmask.inputs.input_image = str(tpl_brainmask_path)
 
-    thr_brainmask = pe.Node(Binarize(thresh_low=0.5),
+    thr_brainmask = pe.Node(Binarize(thresh_low=0.80),
                             name="thr_brainmask")
     bspline_grid = pe.Node(niu.Function(function=_bspline_distance),
                            name="bspline_grid")
@@ -268,15 +225,16 @@ def init_rodent_brain_extraction_wf(
         # (bspline_grid, final_n4, [("out", "bspline_fitting_distance")]),
         (bspline_grid, final_n4, [("out", "args")]),
         # merge laplacian and original images
-        (buffernode, lap_target, [("hires_target", "op1")]),
+        (buffernode, lap_target, [("smooth_target", "op1")]),
         (buffernode, mrg_target, [("hires_target", "in1")]),
-        (lap_target, mrg_target, [("output_image", "in2")]),
+        (lap_target, norm_lap_target, [("output_image", "in_file")]),
+        (norm_lap_target, mrg_target, [("out", "in2")]),
         # Template massaging
         (res_tmpl, lap_tmpl, [("out_file", "op1")]),
         (res_tmpl, mrg_tmpl, [("out_file", "in1")]),
-        (lap_tmpl, mrg_tmpl, [("output_image", "in2")]),
+        (lap_tmpl, norm_lap_tmpl, [("output_image", "in_file")]),
+        (norm_lap_tmpl, mrg_tmpl, [("out", "in2")]),
         # spatial normalization
-        (init_aff, norm, [("output_transform", "initial_moving_transform")]),
         (mrg_target, norm, [("out", "moving_image")]),
         (mrg_tmpl, norm, [("out", "fixed_image")]),
         (norm, map_brainmask, [
@@ -299,18 +257,6 @@ def init_rodent_brain_extraction_wf(
         ])
 
     if interim_checkpoints:
-        init_apply = pe.Node(
-            ApplyTransforms(
-                interpolation="BSpline",
-                float=True),
-            name="init_apply",
-            mem_gb=1
-        )
-        init_report = pe.Node(SimpleBeforeAfter(
-            before_label="tpl-WHS",
-            after_label="target"),
-            name="init_report"
-        )
         final_apply = pe.Node(
             ApplyTransforms(
                 interpolation="BSpline",
@@ -324,12 +270,6 @@ def init_rodent_brain_extraction_wf(
             name="final_report"
         )
         wf.connect([
-            (buffernode, init_apply, [("lowres_target", "input_image")]),
-            (res_tmpl, init_apply, [("out_file", "reference_image")]),
-            (init_aff, init_apply, [("output_transform", "transforms")]),
-            (init_apply, init_report, [("output_image", "after")]),
-            (res_tmpl, init_report, [("out_file", "before")]),
-
             (inputnode, final_apply, [(("in_files", _pop), "reference_image")]),
             (res_tmpl, final_apply, [("out_file", "input_image")]),
             (norm, final_apply, [
@@ -357,6 +297,71 @@ def init_rodent_brain_extraction_wf(
             (final_report, ds_report, [
                 ("out_report", f"{output_dir.name}.@report")]),
         ])
+
+    if not ants_affine_init:
+        return wf
+
+    # Initialize transforms with antsAI
+    lowres_tmpl = pe.Node(RegridToZooms(zooms=LOWRES_ZOOMS), name="lowres_tmpl")
+    lowres_target = pe.Node(RegridToZooms(zooms=LOWRES_ZOOMS), name="lowres_target")
+
+    init_aff = pe.Node(
+        AI(
+            metric=("Mattes", 32, "Regular", 1.0),
+            transform=("Affine", 0.1),
+            search_factor=(10, 0.08),
+            principal_axes=False,
+            convergence=(40, 1e-6, 10),
+            search_grid=(25, (0, 0, 0)) if debug else (2, (1, 1, 1)),
+            verbose=True,
+        ),
+        name="init_aff",
+        n_procs=omp_nthreads,
+    )
+    wf.connect([
+        (gauss_tmpl, lowres_tmpl, [("out", "in_file")]),
+        (lowres_tmpl, init_aff, [("out_file", "fixed_image")]),
+        (gauss_target, lowres_target, [("out", "in_file")]),
+        (lowres_target, init_aff, [("out_file", "moving_image")]),
+        (init_aff, norm, [("output_transform", "initial_moving_transform")]),
+    ])
+
+    if tpl_regmask_path:
+        lowres_mask = pe.Node(
+            ApplyTransforms(
+                input_image=_pop(tpl_regmask_path),
+                transforms="identity",
+                interpolation="MultiLabel",
+                float=True),
+            name="lowres_mask",
+            mem_gb=1
+        )
+        wf.connect([
+            (lowres_tmpl, lowres_mask, [("out_file", "reference_image")]),
+            (lowres_mask, init_aff, [("output_image", "fixed_image_mask")]),
+        ])
+
+    if interim_checkpoints:
+        init_apply = pe.Node(
+            ApplyTransforms(
+                interpolation="BSpline",
+                float=True),
+            name="init_apply",
+            mem_gb=1
+        )
+        init_report = pe.Node(SimpleBeforeAfter(
+            before_label="tpl-WHS",
+            after_label="target"),
+            name="init_report"
+        )
+        wf.connect([
+            (lowres_target, init_apply, [("out_file", "input_image")]),
+            (res_tmpl, init_apply, [("out_file", "reference_image")]),
+            (init_aff, init_apply, [("output_transform", "transforms")]),
+            (init_apply, init_report, [("output_image", "after")]),
+            (res_tmpl, init_report, [("out_file", "before")]),
+        ])
+
     return wf
 
 
