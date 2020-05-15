@@ -52,6 +52,12 @@ RUN curl -sSL "https://f495cb51-a-62cb3a1a-s-sites.googlegroups.com/site/chuangl
     chmod a+rx PCNNBrainExtract
 ENV PATH="/opt/pcnn3d:$PATH"
 
+# Uncomment these lines for RATS (requires the software bundle)
+# WORKDIR /opt/RATS
+# COPY docker/files/rats.tar.gz /tmp/
+# RUN tar xzf /tmp/rats.tar.gz
+# ENV PATH="/opt/RATS/distribution:$PATH"
+
 # Create a shared $HOME directory
 RUN useradd -m -s /bin/bash -G users nirodents
 WORKDIR /home/nirodents
