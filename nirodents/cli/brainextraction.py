@@ -80,6 +80,12 @@ ANTs-based Rodents ToolS (ARTs) package.\
         default=False,
         help="Use low-quality tools for speed - TESTING ONLY",
     )
+    parser.add_argument(
+        "--no-antsAI",
+        dest="antsai_init",
+        action="store_false",
+        default=True,
+        help="Skip antsAI initialization step")
     return parser
 
 
@@ -91,6 +97,7 @@ def main():
     opts = get_parser().parse_args()
     update_templateflow(overwrite=False)
     be = init_rodent_brain_extraction_wf(
+        ants_affine_init=opts.antsai_init,
         debug=opts.debug,
         in_template=opts.template,
         mri_scheme=opts.mri_scheme,
