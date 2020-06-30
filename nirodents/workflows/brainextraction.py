@@ -273,10 +273,10 @@ def init_rodent_brain_extraction_wf(
             AI(
                 metric=("Mattes", 32, "Regular", 1.0),
                 transform=("Affine", 0.1),
-                search_factor=(10, 0.08),
                 principal_axes=False,
                 convergence=(40, 1e-6, 10),
-                search_grid=(25, (0, 0, 0)) if debug else (2, (1, 1, 1)),
+                search_factor=(5, 0.08),
+                search_grid=(16, (0, 0, 0)) if debug else (16, (0, 16, 0)),
                 verbose=True,
             ),
             name="init_aff",
@@ -314,6 +314,7 @@ def init_rodent_brain_extraction_wf(
                 mem_gb=1
             )
             init_report = pe.Node(SimpleBeforeAfter(
+                out_report="init_report.svg",
                 before_label="tpl-WHS",
                 after_label="target"),
                 name="init_report"
