@@ -27,7 +27,7 @@ from ..utils.filtering import (
     truncation as _trunc
 )
 
-LOWRES_ZOOMS = (0.42, 0.42, 0.42)
+LOWRES_ZOOMS = (0.2, 0.2, 0.2)
 HIRES_ZOOMS = (0.1, 0.1, 0.1)
 
 
@@ -35,13 +35,14 @@ def init_rodent_brain_extraction_wf(
     ants_affine_init=False,
     bspline_fitting_distance=8,
     debug=False,
-    in_template="WHS",
     interim_checkpoints=True,
     mem_gb=3.0,
     mri_scheme="T2w",
     name="rodent_brain_extraction_wf",
     omp_nthreads=None,
     output_dir=None,
+    template_id="Fischer344",
+    template_specs=None,
     use_float=True,
 ):
     """
@@ -61,29 +62,39 @@ def init_rodent_brain_extraction_wf(
         name="outputnode"
     )
 
+    template_specs = template_specs or {}
+    if template_id == "WHS" and "resolution" not in template_specs:
+        template_specs["resolution"] = 2
+
     # Find a suitable target template in TemplateFlow
     tpl_target_path = get_template(
-        in_template,
-        resolution=2,
-        suffix="T2star" if mri_scheme == "T2w" else "T1w",
+        template_id,
+        suffix=mri_scheme,
+        **template_specs,
     )
     if not tpl_target_path:
         raise RuntimeError(
-            f"An instance of template <tpl-{in_template}> with MR scheme '{mri_scheme}'"
+            f"An instance of template <tpl-{template_id}> with MR scheme '{mri_scheme}'"
             " could not be found.")
 
     tpl_brainmask_path = (
-        get_template(in_template, resolution=2, atlas=None, desc="brain", suffix="probseg")
-        or get_template(in_template, resolution=2, atlas=None, desc="brain", suffix="mask")
+        get_template(
+            template_id, atlas=None, hemi=None, desc="brain",
+            suffix="probseg", **template_specs
+        )
+        or get_template(
+            template_id, atlas=None, hemi=None, desc="brain",
+            suffix="mask", **template_specs
+        )
     )
 
     tpl_regmask_path = get_template(
-        in_template, resolution=2, atlas=None, desc="BrainCerebellumExtraction", suffix="mask",
+        template_id, atlas=None, desc="BrainCerebellumExtraction",
+        suffix="mask", **template_specs,
     )
 
     # Resample both target and template to a controlled, isotropic resolution
     res_tmpl = pe.Node(RegridToZooms(zooms=HIRES_ZOOMS, smooth=True), name="res_tmpl")
-    res_target = pe.Node(RegridToZooms(zooms=HIRES_ZOOMS, smooth=True), name="res_target")
 
     # Spatial normalization step
     lap_tmpl = pe.Node(ImageMath(operation="Laplacian", op2="0.4 1"), name="lap_tmpl")
@@ -154,8 +165,7 @@ def init_rodent_brain_extraction_wf(
     )
     wf.connect([
         # Target image massaging
-        (inputnode, res_target, [(("in_files", _pop), "in_file")]),
-        (res_target, clip_target, [("out_file", "in_file")]),
+        (inputnode, clip_target, [(("in_files", _pop), "in_file")]),
         (clip_target, init_n4, [("out", "input_image")]),
         (init_n4, clip_inu, [("output_image", "in_file")]),
         (clip_inu, buffernode, [("out", "hires_target")]),
@@ -266,27 +276,24 @@ def init_rodent_brain_extraction_wf(
     if ants_affine_init:
         # Initialize transforms with antsAI
         lowres_tmpl = pe.Node(RegridToZooms(zooms=LOWRES_ZOOMS, smooth=True), name="lowres_tmpl")
-        lowres_target = pe.Node(RegridToZooms(
-            zooms=LOWRES_ZOOMS, smooth=True), name="lowres_target")
 
         init_aff = pe.Node(
             AI(
+                convergence=(10, 1e-6, 10),
                 metric=("Mattes", 32, "Regular", 1.0),
-                transform=("Affine", 0.1),
                 principal_axes=False,
-                convergence=(40, 1e-6, 10),
-                search_factor=(5, 0.08),
-                search_grid=(16, (0, 0, 0)) if debug else (16, (0, 16, 0)),
+                search_factor=(20, 0.12),
+                search_grid=(2, (0, 0, 0)) if debug else (40, (4, 4, 4)),
+                transform=("Affine", 0.1),
                 verbose=True,
             ),
             name="init_aff",
             n_procs=omp_nthreads,
         )
         wf.connect([
-            (clip_inu, lowres_target, [("out", "in_file")]),
+            (clip_inu, init_aff, [("out", "moving_image")]),
             (clip_tmpl, lowres_tmpl, [("out", "in_file")]),
             (lowres_tmpl, init_aff, [("out_file", "fixed_image")]),
-            (lowres_target, init_aff, [("out_file", "moving_image")]),
             (init_aff, norm, [("output_transform", "initial_moving_transform")]),
         ])
 
@@ -320,7 +327,7 @@ def init_rodent_brain_extraction_wf(
                 name="init_report"
             )
             wf.connect([
-                (lowres_target, init_apply, [("out_file", "input_image")]),
+                (clip_inu, init_apply, [("out", "input_image")]),
                 (lowres_tmpl, init_apply, [("out_file", "reference_image")]),
                 (init_aff, init_apply, [("output_transform", "transforms")]),
                 (init_apply, init_report, [("output_image", "after")]),

@@ -30,8 +30,7 @@ ANTs-based Rodents ToolS (ARTs) package.\
     parser.add_argument(
         "--template",
         action="store",
-        choices=("WHS",),
-        default="WHS",
+        default="Fischer344",
         help="The TemplateFlow ID of the reference template.",
     )
     parser.add_argument(
@@ -54,7 +53,6 @@ ANTs-based Rodents ToolS (ARTs) package.\
         action="store",
         type=str,
         default="T2w",
-        choices=("T2w", "T1w"),
         help="select a particular MRI scheme",
     )
     parser.add_argument(
@@ -99,10 +97,10 @@ def main():
     be = init_rodent_brain_extraction_wf(
         ants_affine_init=opts.antsai_init,
         debug=opts.debug,
-        in_template=opts.template,
         mri_scheme=opts.mri_scheme,
         omp_nthreads=opts.omp_nthreads,
         output_dir=opts.output_dir,
+        template_id=opts.template,
     )
     be.base_dir = opts.work_dir
     be.inputs.inputnode.in_files = opts.input_image
