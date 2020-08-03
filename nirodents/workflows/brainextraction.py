@@ -258,8 +258,8 @@ def init_rodent_brain_extraction_wf(
             mem_gb=1
         )
         final_report = pe.Node(SimpleBeforeAfter(
-            before_label="tpl-WHS",
-            after_label="target"),
+            after_label="target",
+            before_label=f"tpl-{template_id}"),
             name="final_report"
         )
         wf.connect([
@@ -322,7 +322,7 @@ def init_rodent_brain_extraction_wf(
             )
             init_report = pe.Node(SimpleBeforeAfter(
                 out_report="init_report.svg",
-                before_label="tpl-WHS",
+                before_label=f"tpl-{template_id}",
                 after_label="target"),
                 name="init_report"
             )
