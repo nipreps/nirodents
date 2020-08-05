@@ -333,6 +333,8 @@ def init_rodent_brain_extraction_wf(
                 (init_apply, init_report, [("output_image", "after")]),
                 (lowres_tmpl, init_report, [("out_file", "before")]),
             ])
+    else:
+        norm.inputs.initial_moving_transform_com = 1
 
     if output_dir:
         from nipype.interfaces.io import DataSink
