@@ -45,12 +45,12 @@ ENV AFNI_MODELPATH="/usr/lib/afni/models" \
     AFNI_PLUGINPATH="/usr/lib/afni/plugins"
 ENV PATH="/usr/lib/afni/bin:$PATH"
 
-WORKDIR /opt/pcnn3d
-RUN curl -sSL "https://f495cb51-a-62cb3a1a-s-sites.googlegroups.com/site/chuanglab/software/3d-pcnn/PCNN3D%20binary.zip" -o "pcnn3d.zip" && \
-    unzip pcnn3d.zip && \
-    rm pcnn3d.zip && \
-    chmod a+rx PCNNBrainExtract
-ENV PATH="/opt/pcnn3d:$PATH"
+# WORKDIR /opt/pcnn3d
+# RUN curl -sSL "https://f495cb51-a-62cb3a1a-s-sites.googlegroups.com/site/chuanglab/software/3d-pcnn/PCNN3D%20binary.zip" -o "pcnn3d.zip" && \
+#     unzip pcnn3d.zip && \
+#     rm pcnn3d.zip && \
+#     chmod a+rx PCNNBrainExtract
+# ENV PATH="/opt/pcnn3d:$PATH"
 
 # Uncomment these lines for RATS (requires the software bundle)
 # WORKDIR /opt/RATS
