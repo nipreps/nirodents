@@ -36,7 +36,7 @@ def init_rodent_brain_extraction_wf(
     factor=20,
     arc=0.12,
     step=2,
-    grid=(0, 0, 0), 
+    grid=(0, 0, 0),
     bspline_fitting_distance=8,
     debug=False,
     interim_checkpoints=True,
