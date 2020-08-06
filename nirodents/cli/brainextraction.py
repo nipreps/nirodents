@@ -84,8 +84,40 @@ ANTs-based Rodents ToolS (ARTs) package.\
         action="store_false",
         default=True,
         help="Skip antsAI initialization step")
-    return parser
 
+    parser.add_argument(
+        "--antsAI-factor",
+        dest="antsai_factor",
+        action="store",
+        type=int,
+        default=20,
+        help="Specify ants-ai search factor parameter")
+
+    parser.add_argument(
+        "--antsAI-arcfrac",
+        dest="antsai_arcfrac",
+        type=float,
+        action="store",
+        default=0.12,
+        help="Specify ants-ai arc fraction parameter")
+
+    parser.add_argument(
+        "--antsAI-step",
+        dest="antsai_step",
+        action="store",
+        type=float,
+        default=2,
+        help="Specify ants-ai step size parameter")
+
+    parser.add_argument(
+        "--antsAI-grid",
+        dest="antsai_grid",
+        action="store",
+        nargs=3,
+        type=float,
+        default=[0, 0, 0],
+        help="Specify ants-ai Search Grid parameter")
+    return parser
 
 def main():
     """Entry point."""
@@ -96,6 +128,10 @@ def main():
     update_templateflow(overwrite=False)
     be = init_rodent_brain_extraction_wf(
         ants_affine_init=opts.antsai_init,
+        factor=opts.antsai_factor,
+        arc=opts.antsai_arcfrac,
+        step=opts.antsai_step,
+        grid=tuple(opts.antsai_grid),
         debug=opts.debug,
         mri_scheme=opts.mri_scheme,
         omp_nthreads=opts.omp_nthreads,
