@@ -33,6 +33,10 @@ HIRES_ZOOMS = (0.1, 0.1, 0.1)
 
 def init_rodent_brain_extraction_wf(
     ants_affine_init=False,
+    factor=20,
+    arc=0.12,
+    step=2,
+    grid=(0, 0, 0),
     bspline_fitting_distance=8,
     debug=False,
     interim_checkpoints=True,
@@ -282,8 +286,9 @@ def init_rodent_brain_extraction_wf(
                 convergence=(10, 1e-6, 10),
                 metric=("Mattes", 32, "Regular", 1.0),
                 principal_axes=False,
-                search_factor=(20, 0.12),
-                search_grid=(2, (0, 0, 0)) if debug else (40, (4, 4, 4)),
+                search_factor=(factor, arc),
+                # search_grid=(2, (0, 0, 0)) if debug else (40, (4, 4, 4)),
+                search_grid=(step, grid),
                 transform=("Affine", 0.1),
                 verbose=True,
             ),
