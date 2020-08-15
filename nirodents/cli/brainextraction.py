@@ -83,7 +83,8 @@ ANTs-based Rodents ToolS (ARTs) package.\
         dest="antsai_init",
         action="store_false",
         default=True,
-        help="Skip antsAI initialization step")
+        help="Skip antsAI initialization step",
+    )
 
     parser.add_argument(
         "--antsAI-factor",
@@ -91,7 +92,8 @@ ANTs-based Rodents ToolS (ARTs) package.\
         action="store",
         type=int,
         default=20,
-        help="Specify ants-ai search factor parameter")
+        help="Specify ants-ai search factor parameter",
+    )
 
     parser.add_argument(
         "--antsAI-arcfrac",
@@ -99,7 +101,8 @@ ANTs-based Rodents ToolS (ARTs) package.\
         type=float,
         action="store",
         default=0.12,
-        help="Specify ants-ai arc fraction parameter")
+        help="Specify ants-ai arc fraction parameter",
+    )
 
     parser.add_argument(
         "--antsAI-step",
@@ -107,7 +110,8 @@ ANTs-based Rodents ToolS (ARTs) package.\
         action="store",
         type=float,
         default=2,
-        help="Specify ants-ai step size parameter")
+        help="Specify ants-ai step size parameter",
+    )
 
     parser.add_argument(
         "--antsAI-grid",
@@ -116,8 +120,10 @@ ANTs-based Rodents ToolS (ARTs) package.\
         nargs=3,
         type=float,
         default=[0, 0, 0],
-        help="Specify ants-ai Search Grid parameter")
+        help="Specify ants-ai Search Grid parameter",
+    )
     return parser
+
 
 def main():
     """Entry point."""
