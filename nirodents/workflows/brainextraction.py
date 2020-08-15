@@ -37,7 +37,7 @@ class DerivativesDataSink(_DDS):
     out_path_base = f"nirodents-{__version__}"
 
 
-LOWRES_ZOOMS = (0.2, 0.2, 0.2)
+LOWRES_ZOOMS = (0.4, 0.4, 0.4)
 HIRES_ZOOMS = (0.1, 0.1, 0.1)
 
 
@@ -299,14 +299,16 @@ def init_rodent_brain_extraction_wf(
         lowres_tmpl = pe.Node(
             RegridToZooms(zooms=LOWRES_ZOOMS, smooth=True), name="lowres_tmpl"
         )
+        lowres_trgt = pe.Node(
+            RegridToZooms(zooms=LOWRES_ZOOMS, smooth=True), name="lowres_trgt"
+        )
 
         init_aff = pe.Node(
             AI(
                 convergence=(10, 1e-6, 10),
-                metric=("Mattes", 32, "Regular", 1.0),
+                metric=("Mattes", 32, "Regular", 0.2),
                 principal_axes=False,
                 search_factor=(factor, arc),
-                # search_grid=(2, (0, 0, 0)) if debug else (40, (4, 4, 4)),
                 search_grid=(step, grid),
                 transform=("Affine", 0.1),
                 verbose=True,
@@ -316,7 +318,8 @@ def init_rodent_brain_extraction_wf(
         )
         # fmt: off
         wf.connect([
-            (clip_inu, init_aff, [("out", "moving_image")]),
+            (clip_inu, lowres_trgt, [("out", "in_file")]),
+            (lowres_trgt, init_aff, [("out_file", "moving_image")]),
             (clip_tmpl, lowres_tmpl, [("out", "in_file")]),
             (lowres_tmpl, init_aff, [("out_file", "fixed_image")]),
             (init_aff, norm, [("output_transform", "initial_moving_transform")]),
@@ -329,7 +332,6 @@ def init_rodent_brain_extraction_wf(
                     input_image=_pop(tpl_regmask_path),
                     transforms="identity",
                     interpolation="MultiLabel",
-                    float=True,
                 ),
                 name="lowres_mask",
                 mem_gb=1,
@@ -343,7 +345,7 @@ def init_rodent_brain_extraction_wf(
 
         if interim_checkpoints:
             init_apply = pe.Node(
-                ApplyTransforms(interpolation="BSpline", float=True),
+                ApplyTransforms(interpolation="BSpline"),
                 name="init_apply",
                 mem_gb=1,
             )
@@ -357,7 +359,7 @@ def init_rodent_brain_extraction_wf(
             )
             # fmt: off
             wf.connect([
-                (clip_inu, init_apply, [("out", "input_image")]),
+                (lowres_trgt, init_apply, [("out_file", "input_image")]),
                 (lowres_tmpl, init_apply, [("out_file", "reference_image")]),
                 (init_aff, init_apply, [("output_transform", "transforms")]),
                 (init_apply, init_report, [("output_image", "after")]),
