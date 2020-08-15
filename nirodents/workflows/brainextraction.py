@@ -14,6 +14,7 @@ from nipype.interfaces.ants import (
 )
 
 # niworkflows
+from niworkflows.interfaces.bids import DerivativesDataSink as _DDS
 from niworkflows.interfaces.images import RegridToZooms
 from niworkflows.interfaces.nibabel import ApplyMask, Binarize
 from niworkflows.interfaces.fixes import (
@@ -26,6 +27,15 @@ from niworkflows.interfaces.registration import (
 
 from templateflow.api import get as get_template
 from ..utils.filtering import truncation as _trunc
+
+from .. import __version__
+
+
+class DerivativesDataSink(_DDS):
+    """Generate a BIDS-Derivatives-compatible output folder."""
+
+    out_path_base = f"nirodents-{__version__}"
+
 
 LOWRES_ZOOMS = (0.2, 0.2, 0.2)
 HIRES_ZOOMS = (0.1, 0.1, 0.1)
@@ -358,39 +368,51 @@ def init_rodent_brain_extraction_wf(
         norm.inputs.initial_moving_transform_com = 1
 
     if output_dir:
-        from nipype.interfaces.io import DataSink
-
         ds_final_inu = pe.Node(
-            DataSink(base_directory=str(output_dir.parent)), name="ds_final_inu"
+            DerivativesDataSink(
+                base_directory=str(output_dir), desc="preproc", compress=True,
+            ), name="ds_final_inu", run_without_submitting=True
         )
         ds_final_msk = pe.Node(
-            DataSink(base_directory=str(output_dir.parent)), name="ds_final_msk"
+            DerivativesDataSink(
+                base_directory=str(output_dir), desc="brain", suffix="mask", compress=True,
+            ), name="ds_final_msk", run_without_submitting=True
         )
+
         # fmt: off
         wf.connect([
-            (outputnode, ds_final_inu, [("out_corrected", f"{output_dir.name}.@inu_corrected")]),
-            (outputnode, ds_final_msk, [("out_mask", f"{output_dir.name}.@brainmask")]),
+            (inputnode, ds_final_inu, [("in_files", "source_file")]),
+            (inputnode, ds_final_msk, [("in_files", "source_file")]),
+            (outputnode, ds_final_inu, [("out_corrected", "in_file")]),
+            (outputnode, ds_final_msk, [("out_mask", "in_file")]),
         ])
         # fmt: on
 
         if interim_checkpoints:
             ds_report = pe.Node(
-                DataSink(base_directory=str(output_dir.parent)), name="ds_report"
+                DerivativesDataSink(
+                    base_directory=str(output_dir), desc="brain",
+                    suffix="mask", datatype="figures"
+                ), name="ds_report", run_without_submitting=True
             )
             # fmt: off
             wf.connect([
-                (final_report, ds_report, [("out_report", f"{output_dir.name}.@report")]),
+                (inputnode, ds_report, [("in_files", "source_file")]),
+                (final_report, ds_report, [("out_report", "in_file")]),
             ])
             # fmt: on
 
         if ants_affine_init and interim_checkpoints:
             ds_report_init = pe.Node(
-                DataSink(base_directory=str(output_dir.parent)), name="ds_report_init"
+                DerivativesDataSink(
+                    base_directory=str(output_dir), desc="init",
+                    suffix="mask", datatype="figures"
+                ), name="ds_report_init", run_without_submitting=True
             )
             # fmt: off
             wf.connect([
-                (init_report, ds_report_init, [
-                    ("out_report", f"{output_dir.name}.@init_report")]),
+                (inputnode, ds_report_init, [("in_files", "source_file")]),
+                (init_report, ds_report_init, [("out_report", "in_file")]),
             ])
             # fmt: on
 
