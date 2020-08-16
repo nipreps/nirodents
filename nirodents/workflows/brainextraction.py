@@ -7,11 +7,14 @@ from pkg_resources import resource_filename as pkgr_fn
 # nipype
 from nipype.pipeline import engine as pe
 from nipype.interfaces import utility as niu
-from nipype.interfaces.ants import N4BiasFieldCorrection
-from nipype.interfaces.ants.utils import AI
+from nipype.interfaces.ants import (
+    AI,
+    ImageMath,
+    N4BiasFieldCorrection,
+)
 
 # niworkflows
-from niworkflows.interfaces.ants import ImageMath
+from niworkflows.interfaces.bids import DerivativesDataSink as _DDS
 from niworkflows.interfaces.images import RegridToZooms
 from niworkflows.interfaces.nibabel import ApplyMask, Binarize
 from niworkflows.interfaces.fixes import (
@@ -19,15 +22,22 @@ from niworkflows.interfaces.fixes import (
     FixHeaderApplyTransforms as ApplyTransforms,
 )
 from niworkflows.interfaces.registration import (
-    SimpleBeforeAfterRPT as SimpleBeforeAfter
+    SimpleBeforeAfterRPT as SimpleBeforeAfter,
 )
 
 from templateflow.api import get as get_template
-from ..utils.filtering import (
-    truncation as _trunc
-)
+from ..utils.filtering import truncation as _trunc
 
-LOWRES_ZOOMS = (0.2, 0.2, 0.2)
+from .. import __version__
+
+
+class DerivativesDataSink(_DDS):
+    """Generate a BIDS-Derivatives-compatible output folder."""
+
+    out_path_base = f"nirodents-{__version__}"
+
+
+LOWRES_ZOOMS = (0.4, 0.4, 0.4)
 HIRES_ZOOMS = (0.1, 0.1, 0.1)
 
 
@@ -63,7 +73,7 @@ def init_rodent_brain_extraction_wf(
     )
     outputnode = pe.Node(
         niu.IdentityInterface(fields=["out_corrected", "out_brain", "out_mask"]),
-        name="outputnode"
+        name="outputnode",
     )
 
     template_specs = template_specs or {}
@@ -71,38 +81,48 @@ def init_rodent_brain_extraction_wf(
         template_specs["resolution"] = 2
 
     # Find a suitable target template in TemplateFlow
-    tpl_target_path = get_template(
-        template_id,
-        suffix=mri_scheme,
-        **template_specs,
-    )
+    tpl_target_path = get_template(template_id, suffix=mri_scheme, **template_specs,)
     if not tpl_target_path:
         raise RuntimeError(
             f"An instance of template <tpl-{template_id}> with MR scheme '{mri_scheme}'"
-            " could not be found.")
+            " could not be found."
+        )
 
-    tpl_brainmask_path = (
-        get_template(
-            template_id, atlas=None, hemi=None, desc="brain",
-            suffix="probseg", **template_specs
-        )
-        or get_template(
-            template_id, atlas=None, hemi=None, desc="brain",
-            suffix="mask", **template_specs
-        )
+    tpl_brainmask_path = get_template(
+        template_id,
+        atlas=None,
+        hemi=None,
+        desc="brain",
+        suffix="probseg",
+        **template_specs,
+    ) or get_template(
+        template_id,
+        atlas=None,
+        hemi=None,
+        desc="brain",
+        suffix="mask",
+        **template_specs,
     )
 
     tpl_regmask_path = get_template(
-        template_id, atlas=None, desc="BrainCerebellumExtraction",
-        suffix="mask", **template_specs,
+        template_id,
+        atlas=None,
+        desc="BrainCerebellumExtraction",
+        suffix="mask",
+        **template_specs,
     )
 
     # Resample both target and template to a controlled, isotropic resolution
     res_tmpl = pe.Node(RegridToZooms(zooms=HIRES_ZOOMS, smooth=True), name="res_tmpl")
 
     # Spatial normalization step
-    lap_tmpl = pe.Node(ImageMath(operation="Laplacian", op2="0.4 1"), name="lap_tmpl")
-    lap_target = pe.Node(ImageMath(operation="Laplacian", op2="0.4 1"), name="lap_target")
+    lap_tmpl = pe.Node(
+        ImageMath(operation="Laplacian", op2="0.4 1", copy_header=True), name="lap_tmpl"
+    )
+    lap_target = pe.Node(
+        ImageMath(operation="Laplacian", op2="0.4 1", copy_header=True),
+        name="lap_target",
+    )
 
     # Merge image nodes
     mrg_target = pe.Node(niu.Merge(2), name="mrg_target")
@@ -123,9 +143,10 @@ def init_rodent_brain_extraction_wf(
     # Set up initial spatial normalization
     ants_params = "testing" if debug else "precise"
     norm = pe.Node(
-        Registration(from_file=pkgr_fn(
-            "nirodents",
-            f"data/artsBrainExtraction_{ants_params}_{mri_scheme}.json")
+        Registration(
+            from_file=pkgr_fn(
+                "nirodents", f"data/artsBrainExtraction_{ants_params}_{mri_scheme}.json"
+            )
         ),
         name="norm",
         n_procs=omp_nthreads,
@@ -136,17 +157,13 @@ def init_rodent_brain_extraction_wf(
     # main workflow
     wf = pe.Workflow(name)
     # Create a buffer interface as a cache for the actual inputs to registration
-    buffernode = pe.Node(niu.IdentityInterface(fields=["hires_target"]), name="buffernode")
+    buffernode = pe.Node(
+        niu.IdentityInterface(fields=["hires_target"]), name="buffernode"
+    )
 
     # truncate target intensity for N4 correction
-    clip_target = pe.Node(
-        niu.Function(function=_trunc),
-        name="clip_target",
-    )
-    clip_tmpl = pe.Node(
-        niu.Function(function=_trunc),
-        name="clip_tmpl",
-    )
+    clip_target = pe.Node(niu.Function(function=_trunc), name="clip_target",)
+    clip_tmpl = pe.Node(niu.Function(function=_trunc), name="clip_tmpl",)
     clip_tmpl.inputs.in_file = _pop(tpl_target_path)
 
     # INU correction of the target image
@@ -163,10 +180,8 @@ def init_rodent_brain_extraction_wf(
         n_procs=omp_nthreads,
         name="init_n4",
     )
-    clip_inu = pe.Node(
-        niu.Function(function=_trunc),
-        name="clip_inu",
-    )
+    clip_inu = pe.Node(niu.Function(function=_trunc), name="clip_inu",)
+    # fmt: off
     wf.connect([
         # Target image massaging
         (inputnode, clip_target, [(("in_files", _pop), "in_file")]),
@@ -187,6 +202,7 @@ def init_rodent_brain_extraction_wf(
         (mrg_target, norm, [("out", "moving_image")]),
         (mrg_tmpl, norm, [("out", "fixed_image")]),
     ])
+    # fmt: on
 
     # Graft a template registration-mask if present
     if tpl_regmask_path:
@@ -195,28 +211,31 @@ def init_rodent_brain_extraction_wf(
                 input_image=_pop(tpl_regmask_path),
                 transforms="identity",
                 interpolation="MultiLabel",
-                float=True),
+                float=True,
+            ),
             name="hires_mask",
-            mem_gb=1
+            mem_gb=1,
         )
+
+        # fmt: off
         wf.connect([
             (res_tmpl, hires_mask, [("out_file", "reference_image")]),
-            (hires_mask, norm, [
-                ("output_image", "fixed_image_masks")]),
+            (hires_mask, norm, [("output_image", "fixed_image_masks")]),
         ])
+        # fmt: on
 
     # Finally project brain mask and refine INU correction
     map_brainmask = pe.Node(
         ApplyTransforms(interpolation="Gaussian", float=True),
         name="map_brainmask",
-        mem_gb=1
+        mem_gb=1,
     )
     map_brainmask.inputs.input_image = str(tpl_brainmask_path)
 
-    thr_brainmask = pe.Node(Binarize(thresh_low=0.80),
-                            name="thr_brainmask")
-    bspline_grid = pe.Node(niu.Function(function=_bspline_distance),
-                           name="bspline_grid")
+    thr_brainmask = pe.Node(Binarize(thresh_low=0.80), name="thr_brainmask")
+    bspline_grid = pe.Node(
+        niu.Function(function=_bspline_distance), name="bspline_grid"
+    )
 
     # Refine INU correction
     final_n4 = pe.Node(
@@ -234,15 +253,15 @@ def init_rodent_brain_extraction_wf(
     )
     final_mask = pe.Node(ApplyMask(), name="final_mask")
 
+    # fmt: off
     wf.connect([
         (inputnode, map_brainmask, [(("in_files", _pop), "reference_image")]),
         (inputnode, final_n4, [(("in_files", _pop), "input_image")]),
         (inputnode, bspline_grid, [(("in_files", _pop), "in_file")]),
         (bspline_grid, final_n4, [("out", "args")]),
         # Project template's brainmask into subject space
-        (norm, map_brainmask, [
-            ("reverse_transforms", "transforms"),
-            ("reverse_invert_flags", "invert_transform_flags")]),
+        (norm, map_brainmask, [("reverse_transforms", "transforms"),
+                               ("reverse_invert_flags", "invert_transform_flags")]),
         (map_brainmask, thr_brainmask, [("output_image", "in_file")]),
         # take a second pass of N4
         (map_brainmask, final_n4, [("output_image", "weight_image")]),
@@ -252,42 +271,44 @@ def init_rodent_brain_extraction_wf(
         (thr_brainmask, outputnode, [("out_mask", "out_mask")]),
         (final_mask, outputnode, [("out_file", "out_brain")]),
     ])
+    # fmt: on
 
     if interim_checkpoints:
         final_apply = pe.Node(
-            ApplyTransforms(
-                interpolation="BSpline",
-                float=True),
+            ApplyTransforms(interpolation="BSpline", float=True),
             name="final_apply",
-            mem_gb=1
+            mem_gb=1,
         )
-        final_report = pe.Node(SimpleBeforeAfter(
-            after_label="target",
-            before_label=f"tpl-{template_id}"),
-            name="final_report"
+        final_report = pe.Node(
+            SimpleBeforeAfter(after_label="target", before_label=f"tpl-{template_id}"),
+            name="final_report",
         )
+        # fmt: off
         wf.connect([
             (inputnode, final_apply, [(("in_files", _pop), "reference_image")]),
             (res_tmpl, final_apply, [("out_file", "input_image")]),
-            (norm, final_apply, [
-                ("reverse_transforms", "transforms"),
-                ("reverse_invert_flags", "invert_transform_flags")]),
+            (norm, final_apply, [("reverse_transforms", "transforms"),
+                                 ("reverse_invert_flags", "invert_transform_flags")]),
             (final_apply, final_report, [("output_image", "before")]),
-            (outputnode, final_report, [("out_corrected", "after"),
-                                        ("out_mask", "wm_seg")]),
+            (outputnode, final_report, [("out_corrected", "after"), ("out_mask", "wm_seg")]),
         ])
+        # fmt: on
 
     if ants_affine_init:
         # Initialize transforms with antsAI
-        lowres_tmpl = pe.Node(RegridToZooms(zooms=LOWRES_ZOOMS, smooth=True), name="lowres_tmpl")
+        lowres_tmpl = pe.Node(
+            RegridToZooms(zooms=LOWRES_ZOOMS, smooth=True), name="lowres_tmpl"
+        )
+        lowres_trgt = pe.Node(
+            RegridToZooms(zooms=LOWRES_ZOOMS, smooth=True), name="lowres_trgt"
+        )
 
         init_aff = pe.Node(
             AI(
                 convergence=(10, 1e-6, 10),
-                metric=("Mattes", 32, "Regular", 1.0),
+                metric=("Mattes", 32, "Regular", 0.2),
                 principal_axes=False,
                 search_factor=(factor, arc),
-                # search_grid=(2, (0, 0, 0)) if debug else (40, (4, 4, 4)),
                 search_grid=(step, grid),
                 transform=("Affine", 0.1),
                 verbose=True,
@@ -295,12 +316,15 @@ def init_rodent_brain_extraction_wf(
             name="init_aff",
             n_procs=omp_nthreads,
         )
+        # fmt: off
         wf.connect([
-            (clip_inu, init_aff, [("out", "moving_image")]),
+            (clip_inu, lowres_trgt, [("out", "in_file")]),
+            (lowres_trgt, init_aff, [("out_file", "moving_image")]),
             (clip_tmpl, lowres_tmpl, [("out", "in_file")]),
             (lowres_tmpl, init_aff, [("out_file", "fixed_image")]),
             (init_aff, norm, [("output_transform", "initial_moving_transform")]),
         ])
+        # fmt: on
 
         if tpl_regmask_path:
             lowres_mask = pe.Node(
@@ -308,67 +332,91 @@ def init_rodent_brain_extraction_wf(
                     input_image=_pop(tpl_regmask_path),
                     transforms="identity",
                     interpolation="MultiLabel",
-                    float=True),
+                ),
                 name="lowres_mask",
-                mem_gb=1
+                mem_gb=1,
             )
+            # fmt: off
             wf.connect([
                 (lowres_tmpl, lowres_mask, [("out_file", "reference_image")]),
                 (lowres_mask, init_aff, [("output_image", "fixed_image_mask")]),
             ])
+            # fmt: on
 
         if interim_checkpoints:
             init_apply = pe.Node(
-                ApplyTransforms(
-                    interpolation="BSpline",
-                    float=True),
+                ApplyTransforms(interpolation="BSpline"),
                 name="init_apply",
-                mem_gb=1
+                mem_gb=1,
             )
-            init_report = pe.Node(SimpleBeforeAfter(
-                out_report="init_report.svg",
-                before_label=f"tpl-{template_id}",
-                after_label="target"),
-                name="init_report"
+            init_report = pe.Node(
+                SimpleBeforeAfter(
+                    out_report="init_report.svg",
+                    before_label=f"tpl-{template_id}",
+                    after_label="target",
+                ),
+                name="init_report",
             )
+            # fmt: off
             wf.connect([
-                (clip_inu, init_apply, [("out", "input_image")]),
+                (lowres_trgt, init_apply, [("out_file", "input_image")]),
                 (lowres_tmpl, init_apply, [("out_file", "reference_image")]),
                 (init_aff, init_apply, [("output_transform", "transforms")]),
                 (init_apply, init_report, [("output_image", "after")]),
                 (lowres_tmpl, init_report, [("out_file", "before")]),
             ])
+            # fmt: on
     else:
         norm.inputs.initial_moving_transform_com = 1
 
     if output_dir:
-        from nipype.interfaces.io import DataSink
-        ds_final_inu = pe.Node(DataSink(base_directory=str(output_dir.parent)),
-                               name="ds_final_inu")
-        ds_final_msk = pe.Node(DataSink(base_directory=str(output_dir.parent)),
-                               name="ds_final_msk")
+        ds_final_inu = pe.Node(
+            DerivativesDataSink(
+                base_directory=str(output_dir), desc="preproc", compress=True,
+            ), name="ds_final_inu", run_without_submitting=True
+        )
+        ds_final_msk = pe.Node(
+            DerivativesDataSink(
+                base_directory=str(output_dir), desc="brain", suffix="mask", compress=True,
+            ), name="ds_final_msk", run_without_submitting=True
+        )
+
+        # fmt: off
         wf.connect([
-            (outputnode, ds_final_inu, [
-                ("out_corrected", f"{output_dir.name}.@inu_corrected")]),
-            (outputnode, ds_final_msk, [
-                ("out_mask", f"{output_dir.name}.@brainmask")]),
+            (inputnode, ds_final_inu, [("in_files", "source_file")]),
+            (inputnode, ds_final_msk, [("in_files", "source_file")]),
+            (outputnode, ds_final_inu, [("out_corrected", "in_file")]),
+            (outputnode, ds_final_msk, [("out_mask", "in_file")]),
         ])
+        # fmt: on
 
         if interim_checkpoints:
-            ds_report = pe.Node(DataSink(base_directory=str(output_dir.parent)),
-                                name="ds_report")
+            ds_report = pe.Node(
+                DerivativesDataSink(
+                    base_directory=str(output_dir), desc="brain",
+                    suffix="mask", datatype="figures"
+                ), name="ds_report", run_without_submitting=True
+            )
+            # fmt: off
             wf.connect([
-                (final_report, ds_report, [
-                    ("out_report", f"{output_dir.name}.@report")]),
+                (inputnode, ds_report, [("in_files", "source_file")]),
+                (final_report, ds_report, [("out_report", "in_file")]),
             ])
+            # fmt: on
 
         if ants_affine_init and interim_checkpoints:
-            ds_report_init = pe.Node(DataSink(base_directory=str(output_dir.parent)),
-                                     name="ds_report_init")
+            ds_report_init = pe.Node(
+                DerivativesDataSink(
+                    base_directory=str(output_dir), desc="init",
+                    suffix="mask", datatype="figures"
+                ), name="ds_report_init", run_without_submitting=True
+            )
+            # fmt: off
             wf.connect([
-                (init_report, ds_report_init, [
-                    ("out_report", f"{output_dir.name}.@init_report")]),
+                (inputnode, ds_report_init, [("in_files", "source_file")]),
+                (init_report, ds_report_init, [("out_report", "in_file")]),
             ])
+            # fmt: on
 
     return wf
 
