@@ -151,7 +151,7 @@ def main():
     if opts.nprocs > 1:
         nipype_plugin["plugin"] = "MultiProc"
         nipype_plugin["plugin_args"] = {
-            "nproc": opts.nprocs,
+            "n_procs ": opts.nprocs,
             "raise_insufficient": False,
             "maxtasksperchild": 1,
         }
