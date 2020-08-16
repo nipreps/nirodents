@@ -27,6 +27,7 @@ from niworkflows.interfaces.registration import (
 
 from templateflow.api import get as get_template
 from ..utils.filtering import truncation as _trunc
+from ..interfaces import DenoiseImage
 
 from .. import __version__
 
@@ -112,6 +113,9 @@ def init_rodent_brain_extraction_wf(
         **template_specs,
     )
 
+    denoise = pe.Node(DenoiseImage(dimension=3, copy_header=True),
+                      name="denoise", n_procs=omp_nthreads)
+
     # Resample both target and template to a controlled, isotropic resolution
     res_tmpl = pe.Node(RegridToZooms(zooms=HIRES_ZOOMS, smooth=True), name="res_tmpl")
 
@@ -184,13 +188,15 @@ def init_rodent_brain_extraction_wf(
         name="init_n4",
     )
     clip_inu = pe.Node(niu.Function(function=_trunc), name="clip_inu",)
-    clip_inu.inputs.percentiles = (0., 99.8)
+    clip_inu.inputs.percentiles = (1., 99.8)
 
     # fmt: off
     wf.connect([
         # Target image massaging
         (inputnode, clip_target, [(("in_files", _pop), "in_file")]),
-        (clip_target, init_n4, [("out", "input_image")]),
+        # (bspline_grid, init_n4, [("out", "args")]),
+        (clip_target, denoise, [("out", "input_image")]),
+        (denoise, init_n4, [("output_image", "input_image")]),
         (init_n4, clip_inu, [("output_image", "in_file")]),
         (clip_inu, buffernode, [("out", "hires_target")]),
         (buffernode, lap_target, [("hires_target", "op1")]),
@@ -261,8 +267,8 @@ def init_rodent_brain_extraction_wf(
     # fmt: off
     wf.connect([
         (inputnode, map_brainmask, [(("in_files", _pop), "reference_image")]),
-        (inputnode, final_n4, [(("in_files", _pop), "input_image")]),
         (inputnode, bspline_grid, [(("in_files", _pop), "in_file")]),
+        (denoise, final_n4, [("output_image", "input_image")]),
         (bspline_grid, final_n4, [("out", "args")]),
         # Project template's brainmask into subject space
         (norm, map_brainmask, [("reverse_transforms", "transforms"),
