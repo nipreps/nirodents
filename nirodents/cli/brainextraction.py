@@ -109,7 +109,7 @@ ANTs-based Rodents ToolS (ARTs) package.\
         dest="antsai_step",
         action="store",
         type=float,
-        default=2,
+        default=4,
         help="Specify ants-ai step size parameter",
     )
 
@@ -119,7 +119,7 @@ ANTs-based Rodents ToolS (ARTs) package.\
         action="store",
         nargs=3,
         type=float,
-        default=[0, 0, 0],
+        default=(0, 4, 4),
         help="Specify ants-ai Search Grid parameter",
     )
     return parser
