@@ -27,6 +27,7 @@ from niworkflows.interfaces.registration import (
 
 from templateflow.api import get as get_template
 from ..utils.filtering import truncation as _trunc
+from ..interfaces import DenoiseImage
 
 from .. import __version__
 
@@ -45,9 +46,9 @@ def init_rodent_brain_extraction_wf(
     ants_affine_init=False,
     factor=20,
     arc=0.12,
-    step=2,
-    grid=(0, 0, 0),
-    bspline_fitting_distance=8,
+    step=4,
+    grid=(0, 4, 4),
+    bspline_fitting_distance=4,
     debug=False,
     interim_checkpoints=True,
     mem_gb=3.0,
@@ -112,6 +113,9 @@ def init_rodent_brain_extraction_wf(
         **template_specs,
     )
 
+    denoise = pe.Node(DenoiseImage(dimension=3, copy_header=True),
+                      name="denoise", n_procs=omp_nthreads)
+
     # Resample both target and template to a controlled, isotropic resolution
     res_tmpl = pe.Node(RegridToZooms(zooms=HIRES_ZOOMS, smooth=True), name="res_tmpl")
 
@@ -129,15 +133,13 @@ def init_rodent_brain_extraction_wf(
     mrg_tmpl = pe.Node(niu.Merge(2), name="mrg_tmpl")
 
     norm_lap_tmpl = pe.Node(niu.Function(function=_trunc), name="norm_lap_tmpl")
-    norm_lap_tmpl.inputs.dtype = "float32"
     norm_lap_tmpl.inputs.out_max = 1.0
-    norm_lap_tmpl.inputs.percentile = (0.01, 99.99)
+    norm_lap_tmpl.inputs.percentiles = (1, 99.99)
     norm_lap_tmpl.inputs.clip_max = None
 
     norm_lap_target = pe.Node(niu.Function(function=_trunc), name="norm_lap_target")
-    norm_lap_target.inputs.dtype = "float32"
     norm_lap_target.inputs.out_max = 1.0
-    norm_lap_target.inputs.percentile = (0.01, 99.99)
+    norm_lap_target.inputs.percentiles = (1, 99.99)
     norm_lap_target.inputs.clip_max = None
 
     # Set up initial spatial normalization
@@ -163,8 +165,12 @@ def init_rodent_brain_extraction_wf(
 
     # truncate target intensity for N4 correction
     clip_target = pe.Node(niu.Function(function=_trunc), name="clip_target",)
+    clip_target.inputs.percentiles = (None, 99.9)
+    clip_target.inputs.clip_max = None
+
     clip_tmpl = pe.Node(niu.Function(function=_trunc), name="clip_tmpl",)
     clip_tmpl.inputs.in_file = _pop(tpl_target_path)
+    clip_tmpl.inputs.percentiles = (35.0, 90.0)
 
     # INU correction of the target image
     init_n4 = pe.Node(
@@ -175,17 +181,22 @@ def init_rodent_brain_extraction_wf(
             n_iterations=[50] * (4 - debug),
             convergence_threshold=1e-7,
             shrink_factor=4,
-            bspline_fitting_distance=8,
+            bspline_fitting_distance=bspline_fitting_distance,
+            rescale_intensities=True,
         ),
         n_procs=omp_nthreads,
         name="init_n4",
     )
     clip_inu = pe.Node(niu.Function(function=_trunc), name="clip_inu",)
+    clip_inu.inputs.percentiles = (1., 99.8)
+
     # fmt: off
     wf.connect([
         # Target image massaging
         (inputnode, clip_target, [(("in_files", _pop), "in_file")]),
-        (clip_target, init_n4, [("out", "input_image")]),
+        # (bspline_grid, init_n4, [("out", "args")]),
+        (clip_target, denoise, [("out", "input_image")]),
+        (denoise, init_n4, [("output_image", "input_image")]),
         (init_n4, clip_inu, [("output_image", "in_file")]),
         (clip_inu, buffernode, [("out", "hires_target")]),
         (buffernode, lap_target, [("hires_target", "op1")]),
@@ -210,7 +221,7 @@ def init_rodent_brain_extraction_wf(
             ApplyTransforms(
                 input_image=_pop(tpl_regmask_path),
                 transforms="identity",
-                interpolation="MultiLabel",
+                interpolation="Gaussian",
                 float=True,
             ),
             name="hires_mask",
@@ -256,8 +267,8 @@ def init_rodent_brain_extraction_wf(
     # fmt: off
     wf.connect([
         (inputnode, map_brainmask, [(("in_files", _pop), "reference_image")]),
-        (inputnode, final_n4, [(("in_files", _pop), "input_image")]),
         (inputnode, bspline_grid, [(("in_files", _pop), "in_file")]),
+        (denoise, final_n4, [("output_image", "input_image")]),
         (bspline_grid, final_n4, [("out", "args")]),
         # Project template's brainmask into subject space
         (norm, map_brainmask, [("reverse_transforms", "transforms"),
@@ -305,8 +316,8 @@ def init_rodent_brain_extraction_wf(
 
         init_aff = pe.Node(
             AI(
-                convergence=(10, 1e-6, 10),
-                metric=("Mattes", 32, "Regular", 0.2),
+                convergence=(100, 1e-6, 10),
+                metric=("Mattes", 32, "Random", 0.25),
                 principal_axes=False,
                 search_factor=(factor, arc),
                 search_grid=(step, grid),
@@ -345,25 +356,35 @@ def init_rodent_brain_extraction_wf(
 
         if interim_checkpoints:
             init_apply = pe.Node(
-                ApplyTransforms(interpolation="BSpline"),
+                ApplyTransforms(interpolation="BSpline", invert_transform_flags=[True]),
                 name="init_apply",
                 mem_gb=1,
             )
+            init_mask = pe.Node(
+                ApplyTransforms(interpolation="Gaussian", invert_transform_flags=[True]),
+                name="init_mask",
+                mem_gb=1,
+            )
+            init_mask.inputs.input_image = str(tpl_brainmask_path)
             init_report = pe.Node(
                 SimpleBeforeAfter(
                     out_report="init_report.svg",
-                    before_label=f"tpl-{template_id}",
-                    after_label="target",
+                    before_label="target",
+                    after_label="template",
                 ),
                 name="init_report",
             )
             # fmt: off
             wf.connect([
-                (lowres_trgt, init_apply, [("out_file", "input_image")]),
-                (lowres_tmpl, init_apply, [("out_file", "reference_image")]),
+                (lowres_trgt, init_apply, [("out_file", "reference_image")]),
+                (lowres_tmpl, init_apply, [("out_file", "input_image")]),
                 (init_aff, init_apply, [("output_transform", "transforms")]),
+                (lowres_trgt, init_report, [("out_file", "before")]),
                 (init_apply, init_report, [("output_image", "after")]),
-                (lowres_tmpl, init_report, [("out_file", "before")]),
+
+                (lowres_trgt, init_mask, [("out_file", "reference_image")]),
+                (init_aff, init_mask, [("output_transform", "transforms")]),
+                (init_mask, init_report, [("output_image", "wm_seg")]),
             ])
             # fmt: on
     else:
