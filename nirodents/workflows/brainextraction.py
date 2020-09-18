@@ -119,13 +119,16 @@ def init_rodent_brain_extraction_wf(
     # Resample both target and template to a controlled, isotropic resolution
     res_tmpl = pe.Node(RegridToZooms(zooms=HIRES_ZOOMS, smooth=True), name="res_tmpl")
 
-    # Spatial normalization step
+    # Create Laplacian images
+    tmpl_sigma = pe.Node(niu.Function(function=_lap_sigma),
+                         name="tmpl_sigma", run_without_submitting=True)
     lap_tmpl = pe.Node(
-        ImageMath(operation="Laplacian", op2="0.4 1", copy_header=True), name="lap_tmpl"
+        ImageMath(operation="Laplacian", copy_header=True), name="lap_tmpl"
     )
+    target_sigma = pe.Node(niu.Function(function=_lap_sigma),
+                           name="target_sigma", run_without_submitting=True)
     lap_target = pe.Node(
-        ImageMath(operation="Laplacian", op2="0.4 1", copy_header=True),
-        name="lap_target",
+        ImageMath(operation="Laplacian", copy_header=True), name="lap_target"
     )
 
     # Merge image nodes
@@ -198,14 +201,18 @@ def init_rodent_brain_extraction_wf(
         (clip_target, denoise, [("out", "input_image")]),
         (denoise, init_n4, [("output_image", "input_image")]),
         (init_n4, clip_inu, [("output_image", "in_file")]),
+        (clip_inu, target_sigma, [("out", "in_file")]),
         (clip_inu, buffernode, [("out", "hires_target")]),
         (buffernode, lap_target, [("hires_target", "op1")]),
+        (target_sigma, lap_target, [("out", "op2")]),
         (lap_target, norm_lap_target, [("output_image", "in_file")]),
         (buffernode, mrg_target, [("hires_target", "in1")]),
         (norm_lap_target, mrg_target, [("out", "in2")]),
         # Template massaging
         (clip_tmpl, res_tmpl, [("out", "in_file")]),
+        (res_tmpl, tmpl_sigma, [("out_file", "in_file")]),
         (res_tmpl, lap_tmpl, [("out_file", "op1")]),
+        (tmpl_sigma, lap_tmpl, [("out", "op2")]),
         (lap_tmpl, norm_lap_tmpl, [("output_image", "in_file")]),
         (res_tmpl, mrg_tmpl, [("out_file", "in1")]),
         (norm_lap_tmpl, mrg_tmpl, [("out", "in2")]),
@@ -456,3 +463,13 @@ def _bspline_distance(in_file, spacings=(8, 2, 8)):
     extent = (np.array(img.shape[:3]) - 1) * img.header.get_zooms()[:3]
     retval = [f"{v}" for v in np.ceil(extent / np.array(spacings)).astype(int)]
     return f"-b {'x'.join(retval)}"
+
+
+def _lap_sigma(in_file):
+    import numpy as np
+    import nibabel as nb
+    import math
+
+    img = nb.load(in_file)
+    min_vox = np.amin(img.header.get_zooms())
+    return str(0.3508 * math.exp(1.4652 * min_vox))
