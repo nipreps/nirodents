@@ -120,7 +120,8 @@ def init_rodent_brain_extraction_wf(
     res_tmpl = pe.Node(RegridToZooms(zooms=HIRES_ZOOMS, smooth=True), name="res_tmpl")
 
     # Create Laplacian images
-    tmpl_sigma = pe.Node(niu.Function(function=_lap_sigma), name="tmpl_sigma")
+    tmpl_sigma = pe.Node(niu.Function(function=_lap_sigma),
+                         name="tmpl_sigma", run_without_submitting=True)
     lap_tmpl = pe.Node(
         ImageMath(operation="Laplacian", copy_header=True), name="lap_tmpl"
     )
