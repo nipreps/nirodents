@@ -125,7 +125,8 @@ def init_rodent_brain_extraction_wf(
     lap_tmpl = pe.Node(
         ImageMath(operation="Laplacian", copy_header=True), name="lap_tmpl"
     )
-    target_sigma = pe.Node(niu.Function(function=_lap_sigma), name="target_sigma")
+    target_sigma = pe.Node(niu.Function(function=_lap_sigma),
+                           name="target_sigma", run_without_submitting=True)
     lap_target = pe.Node(
         ImageMath(operation="Laplacian", copy_header=True), name="lap_target"
     )
