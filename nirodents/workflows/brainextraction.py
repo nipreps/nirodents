@@ -191,6 +191,7 @@ def init_rodent_brain_extraction_wf(
     clip_inu = pe.Node(niu.Function(function=_trunc), name="clip_inu",)
     clip_inu.inputs.percentiles = (1., 99.8)
 
+    # fmt: off
     wf.connect([
         # Target image massaging
         (inputnode, clip_target, [(("in_files", _pop), "in_file")]),
