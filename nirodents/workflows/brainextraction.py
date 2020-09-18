@@ -116,15 +116,15 @@ def init_rodent_brain_extraction_wf(
     denoise = pe.Node(DenoiseImage(dimension=3, copy_header=True),
                       name="denoise", n_procs=omp_nthreads)
 
-        # Resample both target and template to a controlled, isotropic resolution
+    # Resample both target and template to a controlled, isotropic resolution
     res_tmpl = pe.Node(RegridToZooms(zooms=HIRES_ZOOMS, smooth=True), name="res_tmpl")
 
     # Create Laplacian images
-    tmpl_sigma = pe.Node(niu.Function(function=_lap_sigma), name ="tmpl_sigma")
+    tmpl_sigma = pe.Node(niu.Function(function=_lap_sigma), name="tmpl_sigma")
     lap_tmpl = pe.Node(
         ImageMath(operation="Laplacian", copy_header=True), name="lap_tmpl"
     )
-    target_sigma = pe.Node(niu.Function(function=_lap_sigma), name ="target_sigma")
+    target_sigma = pe.Node(niu.Function(function=_lap_sigma), name="target_sigma")
     lap_target = pe.Node(
         ImageMath(operation="Laplacian", copy_header=True), name="lap_target"
     )
@@ -460,6 +460,7 @@ def _bspline_distance(in_file, spacings=(8, 2, 8)):
     extent = (np.array(img.shape[:3]) - 1) * img.header.get_zooms()[:3]
     retval = [f"{v}" for v in np.ceil(extent / np.array(spacings)).astype(int)]
     return f"-b {'x'.join(retval)}"
+
 
 def _lap_sigma(in_file):
     import numpy as np
