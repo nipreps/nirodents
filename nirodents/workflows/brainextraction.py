@@ -49,6 +49,7 @@ def init_rodent_brain_extraction_wf(
     step=4,
     grid=(0, 4, 4),
     bspline_fitting_distance=4,
+    slice_direction=1,
     debug=False,
     interim_checkpoints=True,
     mem_gb=3.0,
@@ -167,11 +168,11 @@ def init_rodent_brain_extraction_wf(
     )
 
     # truncate target intensity for N4 correction
-    clip_target = pe.Node(niu.Function(function=_trunc), name="clip_target",)
+    clip_target = pe.Node(niu.Function(function=_trunc), name="clip_target")
     clip_target.inputs.percentiles = (None, 99.9)
     clip_target.inputs.clip_max = None
 
-    clip_tmpl = pe.Node(niu.Function(function=_trunc), name="clip_tmpl",)
+    clip_tmpl = pe.Node(niu.Function(function=_trunc), name="clip_tmpl")
     clip_tmpl.inputs.in_file = _pop(tpl_target_path)
     clip_tmpl.inputs.percentiles = (35.0, 90.0)
 
@@ -190,7 +191,7 @@ def init_rodent_brain_extraction_wf(
         n_procs=omp_nthreads,
         name="init_n4",
     )
-    clip_inu = pe.Node(niu.Function(function=_trunc), name="clip_inu",)
+    clip_inu = pe.Node(niu.Function(function=_trunc), name="clip_inu")
     clip_inu.inputs.percentiles = (1., 99.8)
 
     # fmt: off
@@ -251,9 +252,8 @@ def init_rodent_brain_extraction_wf(
     map_brainmask.inputs.input_image = str(tpl_brainmask_path)
 
     thr_brainmask = pe.Node(Binarize(thresh_low=0.80), name="thr_brainmask")
-    bspline_grid = pe.Node(
-        niu.Function(function=_bspline_distance), name="bspline_grid"
-    )
+    bspline_grid = pe.Node(niu.Function(function=_bspline_distance), name="bspline_grid")
+    bspline_grid.inputs.slice_dir=slice_direction
 
     # Refine INU correction
     final_n4 = pe.Node(
@@ -455,12 +455,16 @@ def _pop(in_files):
     return in_files
 
 
-def _bspline_distance(in_file, spacings=(8, 2, 8)):
+def _bspline_distance(in_file, spacings=(8, 2, 8), slice_dir=1):
     import numpy as np
     import nibabel as nb
 
     img = nb.load(in_file)
-    extent = (np.array(img.shape[:3]) - 1) * img.header.get_zooms()[:3]
+    zooms = img.header.get_zooms()[:3]
+    zooms_round = [round(x,3) for x in zooms]
+    extent = (np.array(img.shape[:3]) - 1) * zooms
+    if zooms_round.count(zooms_round[0]) != 3 and np.argmax(zooms) != slice_dir:
+        extent[np.argmax(zooms)], extent[slice_dir] = extent[slice_dir], extent[np.argmax(zooms)]
     retval = [f"{v}" for v in np.ceil(extent / np.array(spacings)).astype(int)]
     return f"-b {'x'.join(retval)}"
 
