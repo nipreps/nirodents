@@ -255,17 +255,12 @@ def init_rodent_brain_extraction_wf(
 
     thr_brainmask = pe.Node(Binarize(thresh_low=0.80), name="thr_brainmask")
 
-    # Refine INU correction
-    final_bspline_grid = pe.Node(niu.Function(function=_bspline_distance), name="final_bspline_grid")
-    final_bspline_grid.inputs.slice_dir = slice_direction
-    final_bspline_grid.inputs.spacings = (2, 1, 2)
-
     final_n4 = pe.Node(
         N4BiasFieldCorrection(
             dimension=3,
             save_bias=True,
             copy_header=True,
-            n_iterations=[50] * 5,
+            n_iterations=[50] * 4,
             convergence_threshold=1e-7,
             rescale_intensities=True,
             shrink_factor=4,
@@ -278,9 +273,7 @@ def init_rodent_brain_extraction_wf(
     # fmt: off
     wf.connect([
         (inputnode, map_brainmask, [(("in_files", _pop), "reference_image")]),
-        (inputnode, final_bspline_grid, [(("in_files", _pop), "in_file")]),
         (denoise, final_n4, [("output_image", "input_image")]),
-        (final_bspline_grid, final_n4, [("out", "args")]),
         # Project template's brainmask into subject space
         (norm, map_brainmask, [("reverse_transforms", "transforms"),
                                ("reverse_invert_flags", "invert_transform_flags")]),
