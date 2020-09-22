@@ -253,7 +253,7 @@ def init_rodent_brain_extraction_wf(
     )
     map_brainmask.inputs.input_image = str(tpl_brainmask_path)
 
-    thr_brainmask = pe.Node(Binarize(thresh_low=0.80), name="thr_brainmask")
+    thr_brainmask = pe.Node(Binarize(thresh_low=0.50), name="thr_brainmask")
 
     final_n4 = pe.Node(
         N4BiasFieldCorrection(
