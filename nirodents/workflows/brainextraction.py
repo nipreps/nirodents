@@ -116,7 +116,7 @@ def init_rodent_brain_extraction_wf(
     denoise = pe.Node(DenoiseImage(dimension=3, copy_header=True),
                       name="denoise", n_procs=omp_nthreads)
 
-    # Resample both target and template to a controlled, isotropic resolution
+    # Resample template to a controlled, isotropic resolution
     res_tmpl = pe.Node(RegridToZooms(zooms=HIRES_ZOOMS, smooth=True), name="res_tmpl")
 
     # Create Laplacian images
@@ -125,21 +125,16 @@ def init_rodent_brain_extraction_wf(
     lap_tmpl = pe.Node(
         ImageMath(operation="Laplacian", copy_header=True), name="lap_tmpl"
     )
+    norm_lap_tmpl = pe.Node(niu.Function(function=_trunc), name="norm_lap_tmpl")
+    norm_lap_tmpl.inputs.out_max = 1.0
+    norm_lap_tmpl.inputs.percentiles = (1, 99.99)
+    norm_lap_tmpl.inputs.clip_max = None
+    
     target_sigma = pe.Node(niu.Function(function=_lap_sigma),
                            name="target_sigma", run_without_submitting=True)
     lap_target = pe.Node(
         ImageMath(operation="Laplacian", copy_header=True), name="lap_target"
     )
-
-    # Merge image nodes
-    mrg_target = pe.Node(niu.Merge(2), name="mrg_target")
-    mrg_tmpl = pe.Node(niu.Merge(2), name="mrg_tmpl")
-
-    norm_lap_tmpl = pe.Node(niu.Function(function=_trunc), name="norm_lap_tmpl")
-    norm_lap_tmpl.inputs.out_max = 1.0
-    norm_lap_tmpl.inputs.percentiles = (1, 99.99)
-    norm_lap_tmpl.inputs.clip_max = None
-
     norm_lap_target = pe.Node(niu.Function(function=_trunc), name="norm_lap_target")
     norm_lap_target.inputs.out_max = 1.0
     norm_lap_target.inputs.percentiles = (1, 99.99)
@@ -161,19 +156,20 @@ def init_rodent_brain_extraction_wf(
 
     # main workflow
     wf = pe.Workflow(name)
-    # Create a buffer interface as a cache for the actual inputs to registration
-    buffernode = pe.Node(
-        niu.IdentityInterface(fields=["hires_target"]), name="buffernode"
-    )
 
     # truncate target intensity for N4 correction
     clip_target = pe.Node(niu.Function(function=_trunc), name="clip_target")
     clip_target.inputs.percentiles = (None, 99.9)
     clip_target.inputs.clip_max = None
 
+    # truncate template intensity to match target
     clip_tmpl = pe.Node(niu.Function(function=_trunc), name="clip_tmpl")
     clip_tmpl.inputs.in_file = _pop(tpl_target_path)
     clip_tmpl.inputs.percentiles = (35.0, 90.0)
+
+    # set INU bspline grid based on voxel size
+    init_bspline_grid = pe.Node(niu.Function(function=_bspline_distance), name="init_bspline_grid")
+    init_bspline_grid.inputs.slice_dir = slice_direction
 
     # INU correction of the target image
     init_n4 = pe.Node(
@@ -192,8 +188,14 @@ def init_rodent_brain_extraction_wf(
     clip_inu = pe.Node(niu.Function(function=_trunc), name="clip_inu")
     clip_inu.inputs.percentiles = (1., 99.8)
 
-    init_bspline_grid = pe.Node(niu.Function(function=_bspline_distance), name="init_bspline_grid")
-    init_bspline_grid.inputs.slice_dir = slice_direction
+    # Create a buffer interface as a cache for the actual inputs to registration
+    buffernode = pe.Node(
+        niu.IdentityInterface(fields=["hires_target"]), name="buffernode"
+    )
+
+    # Merge image nodes
+    mrg_target = pe.Node(niu.Merge(2), name="mrg_target")
+    mrg_tmpl = pe.Node(niu.Merge(2), name="mrg_tmpl")
 
     # fmt: off
     wf.connect([
@@ -458,7 +460,7 @@ def _bspline_distance(in_file, spacings=(8, 10, 8), slice_dir=1):
 
     img = nb.load(in_file)
     zooms = img.header.get_zooms()[:3]
-    zooms_round = [round(x,3) for x in zooms]
+    zooms_round = [round(x, 3) for x in zooms]
     extent = (np.array(img.shape[:3]) - 1) * zooms
     if zooms_round.count(zooms_round[0]) != 3 and np.argmax(zooms) != slice_dir:
         extent[np.argmax(zooms)], extent[slice_dir] = extent[slice_dir], extent[np.argmax(zooms)]
