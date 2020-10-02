@@ -129,7 +129,6 @@ def init_rodent_brain_extraction_wf(
     norm_lap_tmpl.inputs.out_max = 1.0
     norm_lap_tmpl.inputs.percentiles = (1, 99.99)
     norm_lap_tmpl.inputs.clip_max = None
-    
     target_sigma = pe.Node(niu.Function(function=_lap_sigma),
                            name="target_sigma", run_without_submitting=True)
     lap_target = pe.Node(
