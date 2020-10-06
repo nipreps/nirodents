@@ -1,0 +1,25 @@
+0.2.0 (October 06, 2020)
+========================
+First usable release, still in alpha status.
+
+* FIX: Correctly pin niworkflows branch and use new interface (#25)
+* FIX: Bug in resampling interface (#22)
+* FIX: Data init file (#18)
+* FIX: Set correct binary path for ANTS (#17)
+* ENH: Improve anisotropic B-Splines for INU correction (#41)
+* ENH: Scale Laplacian smoothing with voxel size (#40)
+* ENH: Continue refactoring the workflow (#38)
+* ENH: Adapt ``antsAI`` paramaters from CLI (#36)
+* ENH: Deep revision of the workflow (#35)
+* ENH: Add RATS (commented out) and PCNN to ``Dockerfile`` (#34)
+* ENH: Second refactor of workflow - make ``antsAI`` optional (#33)
+* ENH: Add an entrypoint in container images (#32)
+* ENH: Several improvements over the overhaul (#31)
+* ENH: Workflow overhaul (#30)
+* ENH: Setup a smoke test on CircleCI + minor improvements to CLI (#26)
+* ENH: Add AFNI to docker image (#19)
+* ENH: add mosaic plots and wrapper (#16)
+* MAINT: Run black on the full repo, address pep8 errors (#27)
+* MAINT: Tidy-up workflow (#23)
+* MAINT: Update version pinning of nipype and niworkflows to dev versions (#20)
+
