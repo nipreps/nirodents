@@ -79,11 +79,11 @@ ANTs-based Rodents ToolS (ARTs) package.\
         help="Use low-quality tools for speed - TESTING ONLY",
     )
     parser.add_argument(
-        "--no-antsAI",
+        "--antsAI",
         dest="antsai_init",
-        action="store_false",
-        default=True,
-        help="Skip antsAI initialization step",
+        action="store_true",
+        default=False,
+        help="Include antsAI initialization step",
     )
 
     parser.add_argument(
