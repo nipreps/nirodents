@@ -75,18 +75,18 @@ ENV PATH=/usr/local/miniconda/bin:$PATH \
 
 # Installing precomputed python packages
 RUN conda install -y python=3.7.1 \
-                     mkl=2018.0.3 \
-                     mkl-service \
-                     numpy=1.15.4 \
-                     scipy=1.1.0 \
-                     scikit-learn=0.19.1 \
-                     matplotlib=2.2.2 \
-                     pandas=0.23.4 \
+                     graphviz=2.40 \
                      libxml2=2.9.8 \
                      libxslt=1.1.32 \
-                     graphviz=2.40.1 \
-                     traits=4.6.0 \
-                     pip=19.1 \
+                     matplotlib=2.2 \
+                     mkl \
+                     mkl-service \
+                     numpy=1.19 \
+                     pandas=0.25 \
+                     pip=20.3 \
+                     scikit-learn=0.19 \
+                     scipy=1.5 \
+                     traits=4.6 \
                      zlib; sync && \
     chmod -R a+rX /usr/local/miniconda; sync && \
     chmod +x /usr/local/miniconda/bin/*; sync && \
