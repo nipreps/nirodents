@@ -474,4 +474,4 @@ def _lap_sigma(in_file):
 
     img = nb.load(in_file)
     min_vox = np.amin(img.header.get_zooms())
-    return str(0.3508 * math.exp(1.4652 * min_vox))
+    return str(1.5 * min_vox ** 0.5)
