@@ -128,7 +128,7 @@ def init_rodent_brain_extraction_wf(
     norm_lap_tmpl = pe.Node(niu.Function(function=_trunc), name="norm_lap_tmpl")
     norm_lap_tmpl.inputs.out_max = 1.0
     norm_lap_tmpl.inputs.percentiles = (1, 99.99)
-    norm_lap_tmpl.inputs.clip_max = None
+    norm_lap_tmpl.inputs.clip_max = 99.9
     target_sigma = pe.Node(niu.Function(function=_lap_sigma),
                            name="target_sigma", run_without_submitting=True)
     lap_target = pe.Node(
@@ -137,6 +137,7 @@ def init_rodent_brain_extraction_wf(
     norm_lap_target = pe.Node(niu.Function(function=_trunc), name="norm_lap_target")
     norm_lap_target.inputs.out_max = 1.0
     norm_lap_target.inputs.percentiles = (1, 99.99)
+    norm_lap_tmpl.inputs.clip_max = 99.9
 
     # Set up initial spatial normalization
     ants_params = "testing" if debug else "precise"
@@ -474,4 +475,4 @@ def _lap_sigma(in_file):
 
     img = nb.load(in_file)
     min_vox = np.amin(img.header.get_zooms())
-    return str(1.5 * min_vox ** 0.5)
+    return str(1.5 * min_vox ** 0.75)
