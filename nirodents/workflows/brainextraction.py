@@ -460,9 +460,9 @@ def _bspline_grid(in_file):
     slices = img.header.get_data_shape()
     # get slice ratio
     ratio = [s / slices[np.argmax(slices)] for s in slices]
-    ratio_factor = ratio[np.argmax(ratio)]/ratio[np.argmin(ratio)]
+    ratio_factor = ratio[np.argmax(ratio)] / ratio[np.argmin(ratio)]
     # turn into integer resolution
-    mesh_res = [ f"{round(i * ratio_factor)}" for i in ratio ]
+    mesh_res = [f"{round(i * ratio_factor)}" for i in ratio]
     return f"-b [{'x'.join(mesh_res)}]"
 
 
