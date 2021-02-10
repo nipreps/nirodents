@@ -137,7 +137,6 @@ def init_rodent_brain_extraction_wf(
     norm_lap_target = pe.Node(niu.Function(function=_trunc), name="norm_lap_target")
     norm_lap_target.inputs.out_max = 1.0
     norm_lap_target.inputs.percentiles = (1, 99.99)
-    norm_lap_target.inputs.clip_max = None
 
     # Set up initial spatial normalization
     ants_params = "testing" if debug else "precise"
@@ -167,8 +166,8 @@ def init_rodent_brain_extraction_wf(
     clip_tmpl.inputs.percentiles = (35.0, 90.0)
 
     # set INU bspline grid based on voxel size
-    init_bspline_grid = pe.Node(niu.Function(function=_bspline_distance), name="init_bspline_grid")
-    init_bspline_grid.inputs.slice_dir = slice_direction
+    bspline_grid = pe.Node(niu.Function(function=_bspline_grid), name="bspline_grid")
+    # init_bspline_grid.inputs.slice_dir = slice_direction
 
     # INU correction of the target image
     init_n4 = pe.Node(
@@ -200,8 +199,8 @@ def init_rodent_brain_extraction_wf(
     wf.connect([
         # Target image massaging
         (inputnode, clip_target, [(("in_files", _pop), "in_file")]),
-        (inputnode, init_bspline_grid, [(("in_files", _pop), "in_file")]),
-        (init_bspline_grid, init_n4, [("out", "args")]),
+        (inputnode, bspline_grid, [(("in_files", _pop), "in_file")]),
+        (bspline_grid, init_n4, [("out", "args")]),
         (clip_target, denoise, [("out", "input_image")]),
         (denoise, init_n4, [("output_image", "input_image")]),
         (init_n4, clip_inu, [("output_image", "in_file")]),
@@ -274,6 +273,7 @@ def init_rodent_brain_extraction_wf(
     # fmt: off
     wf.connect([
         (inputnode, map_brainmask, [(("in_files", _pop), "reference_image")]),
+        (bspline_grid, final_n4, [("out", "args")]),
         (denoise, final_n4, [("output_image", "input_image")]),
         # Project template's brainmask into subject space
         (norm, map_brainmask, [("reverse_transforms", "transforms"),
@@ -453,18 +453,18 @@ def _pop(in_files):
     return in_files
 
 
-def _bspline_distance(in_file, spacings=(8, 10, 8), slice_dir=1):
-    import numpy as np
+def _bspline_grid(in_file):
     import nibabel as nb
+    import numpy as np
 
     img = nb.load(in_file)
-    zooms = img.header.get_zooms()[:3]
-    zooms_round = [round(x, 3) for x in zooms]
-    extent = (np.array(img.shape[:3]) - 1) * zooms
-    if zooms_round.count(zooms_round[0]) != 3 and np.argmax(zooms) != slice_dir:
-        extent[np.argmax(zooms)], extent[slice_dir] = extent[slice_dir], extent[np.argmax(zooms)]
-    retval = [f"{v}" for v in np.ceil(extent / np.array(spacings)).astype(int)]
-    return f"-b [{'x'.join(retval)}]"
+    slices = img.header.get_data_shape()
+    # get slice ratio
+    ratio = [s / slices[np.argmax(slices)] for s in slices]
+    ratio_factor = ratio[np.argmax(ratio)]/ratio[np.argmin(ratio)]
+    # turn into integer resolution
+    mesh_res = [ f"{round(i * ratio_factor)}" for i in ratio ]
+    return f"-b [{'x'.join(mesh_res)}]"
 
 
 def _lap_sigma(in_file):
