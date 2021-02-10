@@ -48,7 +48,6 @@ def init_rodent_brain_extraction_wf(
     arc=0.12,
     step=4,
     grid=(0, 4, 4),
-    slice_direction=1,
     debug=False,
     interim_checkpoints=True,
     mem_gb=3.0,
@@ -137,7 +136,7 @@ def init_rodent_brain_extraction_wf(
     norm_lap_target = pe.Node(niu.Function(function=_trunc), name="norm_lap_target")
     norm_lap_target.inputs.out_max = 1.0
     norm_lap_target.inputs.percentiles = (1, 99.99)
-    norm_lap_tmpl.inputs.clip_max = 99.9
+    norm_lap_target.inputs.clip_max = 99.9
 
     # Set up initial spatial normalization
     ants_params = "testing" if debug else "precise"
@@ -168,7 +167,6 @@ def init_rodent_brain_extraction_wf(
 
     # set INU bspline grid based on voxel size
     bspline_grid = pe.Node(niu.Function(function=_bspline_grid), name="bspline_grid")
-    # init_bspline_grid.inputs.slice_dir = slice_direction
 
     # INU correction of the target image
     init_n4 = pe.Node(
