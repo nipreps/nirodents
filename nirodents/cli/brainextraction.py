@@ -122,16 +122,6 @@ ANTs-based Rodents ToolS (ARTs) package.\
         default=(0, 4, 4),
         help="Specify ants-ai Search Grid parameter",
     )
-
-    parser.add_argument(
-        "--slice-direction",
-        dest="slice_direction",
-        action="store",
-        type=int,
-        default=1,
-        choices=[0, 1, 2],
-        help="Specify slice direction: 0 = Sagittal (R-L), 1 = Coronal (A-P), 2 = Axial (S-I)",
-    )
     return parser
 
 
@@ -148,7 +138,6 @@ def main():
         arc=opts.antsai_arcfrac,
         step=opts.antsai_step,
         grid=tuple(opts.antsai_grid),
-        slice_direction=opts.slice_direction,
         debug=opts.debug,
         mri_scheme=opts.mri_scheme,
         omp_nthreads=opts.omp_nthreads,

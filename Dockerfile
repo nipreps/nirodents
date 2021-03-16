@@ -77,9 +77,9 @@ ENV PATH=/usr/local/miniconda/bin:$PATH \
 RUN conda install -y python=3.7.1 \
                      mkl=2018.0.3 \
                      mkl-service \
-                     numpy=1.15.4 \
+                     numpy>=1.16.5 \
                      scipy=1.1.0 \
-                     scikit-learn=0.19.1 \
+                     scikit-learn>=0.20 \
                      matplotlib=2.2.2 \
                      pandas=0.23.4 \
                      libxml2=2.9.8 \
