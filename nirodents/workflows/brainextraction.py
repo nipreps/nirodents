@@ -16,17 +16,16 @@ from nipype.interfaces.ants import (
 # niworkflows
 from niworkflows.interfaces.bids import DerivativesDataSink as _DDS
 from niworkflows.interfaces.images import RegridToZooms
-from niworkflows.interfaces.nibabel import ApplyMask, Binarize
+from niworkflows.interfaces.nibabel import ApplyMask, Binarize, IntensityClip
 from niworkflows.interfaces.fixes import (
     FixHeaderRegistration as Registration,
     FixHeaderApplyTransforms as ApplyTransforms,
 )
-from niworkflows.interfaces.registration import (
+from niworkflows.interfaces.reportlets.registration import (
     SimpleBeforeAfterRPT as SimpleBeforeAfter,
 )
 
 from templateflow.api import get as get_template
-from ..utils.filtering import truncation as _trunc
 from ..interfaces import DenoiseImage
 
 from .. import __version__
@@ -119,24 +118,15 @@ def init_rodent_brain_extraction_wf(
     res_tmpl = pe.Node(RegridToZooms(zooms=HIRES_ZOOMS, smooth=True), name="res_tmpl")
 
     # Create Laplacian images
+    lap_tmpl = pe.Node(ImageMath(operation="Laplacian", copy_header=True), name="lap_tmpl")
     tmpl_sigma = pe.Node(niu.Function(function=_lap_sigma),
                          name="tmpl_sigma", run_without_submitting=True)
-    lap_tmpl = pe.Node(
-        ImageMath(operation="Laplacian", copy_header=True), name="lap_tmpl"
-    )
-    norm_lap_tmpl = pe.Node(niu.Function(function=_trunc), name="norm_lap_tmpl")
-    norm_lap_tmpl.inputs.out_max = 1.0
-    norm_lap_tmpl.inputs.percentiles = (1, 99.99)
-    norm_lap_tmpl.inputs.clip_max = 99.9
+    norm_lap_tmpl = pe.Node(niu.Function(function=_norm_lap), name="norm_lap_tmpl")
+
+    lap_target = pe.Node(ImageMath(operation="Laplacian", copy_header=True), name="lap_target")
     target_sigma = pe.Node(niu.Function(function=_lap_sigma),
                            name="target_sigma", run_without_submitting=True)
-    lap_target = pe.Node(
-        ImageMath(operation="Laplacian", copy_header=True), name="lap_target"
-    )
-    norm_lap_target = pe.Node(niu.Function(function=_trunc), name="norm_lap_target")
-    norm_lap_target.inputs.out_max = 1.0
-    norm_lap_target.inputs.percentiles = (1, 99.99)
-    norm_lap_target.inputs.clip_max = 99.9
+    norm_lap_target = pe.Node(niu.Function(function=_norm_lap), name="norm_lap_target")
 
     # Set up initial spatial normalization
     ants_params = "testing" if debug else "precise"
@@ -156,14 +146,11 @@ def init_rodent_brain_extraction_wf(
     wf = pe.Workflow(name)
 
     # truncate target intensity for N4 correction
-    clip_target = pe.Node(niu.Function(function=_trunc), name="clip_target")
-    clip_target.inputs.percentiles = (None, 99.9)
-    clip_target.inputs.clip_max = None
+    clip_target = pe.Node(IntensityClip(p_min=15, p_max=99.9), name="clip_target")
 
     # truncate template intensity to match target
-    clip_tmpl = pe.Node(niu.Function(function=_trunc), name="clip_tmpl")
+    clip_tmpl = pe.Node(IntensityClip(p_min=5, p_max=98), name="clip_tmpl")
     clip_tmpl.inputs.in_file = _pop(tpl_target_path)
-    clip_tmpl.inputs.percentiles = (35.0, 90.0)
 
     # set INU bspline grid based on voxel size
     bspline_grid = pe.Node(niu.Function(function=_bspline_grid), name="bspline_grid")
@@ -182,8 +169,7 @@ def init_rodent_brain_extraction_wf(
         n_procs=omp_nthreads,
         name="init_n4",
     )
-    clip_inu = pe.Node(niu.Function(function=_trunc), name="clip_inu")
-    clip_inu.inputs.percentiles = (1., 99.8)
+    clip_inu = pe.Node(IntensityClip(p_min=1, p_max=99.8), name="clip_inu")
 
     # Create a buffer interface as a cache for the actual inputs to registration
     buffernode = pe.Node(
@@ -200,18 +186,18 @@ def init_rodent_brain_extraction_wf(
         (inputnode, clip_target, [(("in_files", _pop), "in_file")]),
         (inputnode, bspline_grid, [(("in_files", _pop), "in_file")]),
         (bspline_grid, init_n4, [("out", "args")]),
-        (clip_target, denoise, [("out", "input_image")]),
+        (clip_target, denoise, [("out_file", "input_image")]),
         (denoise, init_n4, [("output_image", "input_image")]),
         (init_n4, clip_inu, [("output_image", "in_file")]),
-        (clip_inu, target_sigma, [("out", "in_file")]),
-        (clip_inu, buffernode, [("out", "hires_target")]),
+        (clip_inu, target_sigma, [("out_file", "in_file")]),
+        (clip_inu, buffernode, [("out_file", "hires_target")]),
         (buffernode, lap_target, [("hires_target", "op1")]),
         (target_sigma, lap_target, [("out", "op2")]),
         (lap_target, norm_lap_target, [("output_image", "in_file")]),
         (buffernode, mrg_target, [("hires_target", "in1")]),
         (norm_lap_target, mrg_target, [("out", "in2")]),
         # Template massaging
-        (clip_tmpl, res_tmpl, [("out", "in_file")]),
+        (clip_tmpl, res_tmpl, [("out_file", "in_file")]),
         (res_tmpl, tmpl_sigma, [("out_file", "in_file")]),
         (res_tmpl, lap_tmpl, [("out_file", "op1")]),
         (tmpl_sigma, lap_tmpl, [("out", "op2")]),
@@ -333,9 +319,9 @@ def init_rodent_brain_extraction_wf(
         )
         # fmt: off
         wf.connect([
-            (clip_inu, lowres_trgt, [("out", "in_file")]),
+            (clip_inu, lowres_trgt, [("out_file", "in_file")]),
             (lowres_trgt, init_aff, [("out_file", "moving_image")]),
-            (clip_tmpl, lowres_tmpl, [("out", "in_file")]),
+            (clip_tmpl, lowres_tmpl, [("out_file", "in_file")]),
             (lowres_tmpl, init_aff, [("out_file", "fixed_image")]),
             (init_aff, norm, [("output_transform", "initial_moving_transform")]),
         ])
@@ -455,22 +441,44 @@ def _pop(in_files):
 def _bspline_grid(in_file):
     import nibabel as nb
     import numpy as np
+    import math
 
     img = nb.load(in_file)
-    slices = img.header.get_data_shape()
-    # get slice ratio
-    ratio = [s / slices[np.argmax(slices)] for s in slices]
-    ratio_factor = ratio[np.argmax(ratio)] / ratio[np.argmin(ratio)]
-    # turn into integer resolution
-    mesh_res = [f"{round(i * ratio_factor)}" for i in ratio]
-    return f"-b [{'x'.join(mesh_res)}]"
+    zooms = img.header.get_zooms()[:3]
+    extent = (np.array(img.shape[:3]) - 1) * zooms
+    # get mesh resolution ratio
+    retval = [f"{math.ceil(i / extent[np.argmin(extent)])}" for i in extent]
+    return f"-b [{'x'.join(retval)}]"
 
 
 def _lap_sigma(in_file):
     import numpy as np
     import nibabel as nb
-    import math
 
     img = nb.load(in_file)
     min_vox = np.amin(img.header.get_zooms())
     return str(1.5 * min_vox ** 0.75)
+
+
+def _norm_lap(in_file):
+    from pathlib import Path
+    import numpy as np
+    import nibabel as nb
+    from nipype.utils.filemanip import fname_presuffix
+
+    img = nb.load(in_file)
+    data = img.get_fdata()
+    data -= np.median(data)
+    l_max = np.percentile(data[data > 0], 99.8)
+    l_min = np.percentile(data[data < 0], 0.2)
+    data[data < 0] *= -1.0 / l_min
+    data[data > 0] *= 1.0 / l_max
+    data = np.clip(data, a_min=-1.0, a_max=1.0)
+
+    out_file = fname_presuffix(
+        Path(in_file).name, suffix="_norm", newpath=str(Path.cwd().absolute())
+    )
+    hdr = img.header.copy()
+    hdr.set_data_dtype("float32")
+    img.__class__(data.astype("float32"), img.affine, hdr).to_filename(out_file)
+    return out_file
