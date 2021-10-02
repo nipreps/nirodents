@@ -1,3 +1,11 @@
+0.2.4 (October 02, 2021)
+========================
+
+  * FIX: reorder pre-brain extraction massaging
+  * PIN: pandas and scipy versions in docker file (#49)
+  * PIN: niworkflows 1.4.x (#48)
+  * DOC: update changes.rst (#47)
+
 0.2.3 (September 15, 2021)
 ==========================
 
