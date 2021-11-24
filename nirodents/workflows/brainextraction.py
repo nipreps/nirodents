@@ -259,7 +259,7 @@ def init_rodent_brain_extraction_wf(
     wf.connect([
         (inputnode, map_brainmask, [(("in_files", _pop), "reference_image")]),
         (bspline_grid, final_n4, [("out", "args")]),
-        (denoise, final_n4, [("output_image", "input_image")]),
+        (clip_target, final_n4, [("out_file", "input_image")]),
         # Project template's brainmask into subject space
         (norm, map_brainmask, [("reverse_transforms", "transforms"),
                                ("reverse_invert_flags", "invert_transform_flags")]),
