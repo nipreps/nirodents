@@ -145,7 +145,7 @@ def main():
         template_id=opts.template,
     )
     be.base_dir = opts.work_dir
-    be.inputs.inputnode.in_files = opts.input_image
+    be.inputs.inputnode.in_files = Path(opts.input_image).absolute()
 
     nipype_plugin = {"plugin": "Linear"}
     if opts.nprocs > 1:
