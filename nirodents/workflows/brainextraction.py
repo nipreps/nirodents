@@ -163,7 +163,7 @@ def init_rodent_brain_extraction_wf(
             copy_header=True,
             n_iterations=[50] * (4 - debug),
             convergence_threshold=1e-7,
-            shrink_factor=4,
+            shrink_factor=1,
             rescale_intensities=True,
         ),
         n_procs=omp_nthreads,
@@ -248,7 +248,7 @@ def init_rodent_brain_extraction_wf(
             n_iterations=[50] * 4,
             convergence_threshold=1e-7,
             rescale_intensities=True,
-            shrink_factor=4,
+            shrink_factor=1,
         ),
         n_procs=omp_nthreads,
         name="final_n4",
@@ -259,7 +259,7 @@ def init_rodent_brain_extraction_wf(
     wf.connect([
         (inputnode, map_brainmask, [(("in_files", _pop), "reference_image")]),
         (bspline_grid, final_n4, [("out", "args")]),
-        (denoise, final_n4, [("output_image", "input_image")]),
+        (clip_target, final_n4, [("out_file", "input_image")]),
         # Project template's brainmask into subject space
         (norm, map_brainmask, [("reverse_transforms", "transforms"),
                                ("reverse_invert_flags", "invert_transform_flags")]),
