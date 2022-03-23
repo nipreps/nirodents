@@ -24,7 +24,7 @@ jobs:
             INSTALLED=$( python -c 'import nirodents; print(nirodents.__version__)' )
             test "${CIRCLE_TAG:-$THISVERSION}" == "$INSTALLED"
 
-  deploy_package:
+  deploy_pypi:
     docker:
       - image: python:3.7.4
     working_directory: /tmp/src/nirodents
@@ -52,6 +52,50 @@ jobs:
           name: Upload to PyPi
           command: |
             python -m twine upload dist/*
+
+deploy_docker:
+    machine:
+      image: ubuntu-1604:202007-01
+    working_directory: /tmp/src/nirodents
+    steps:
+      - restore_cache:
+          keys:
+            - build-v1-{{ .Branch }}-{{ epoch }}
+          paths:
+            - /tmp/docker
+            - /tmp/images
+            - /tmp/docker-compose
+      - docker/install-docker-credential-helper
+      - run:
+          name: Docker authentication
+          command: |
+            if [[ -n $DOCKER_PAT ]]; then
+              echo "$DOCKER_PAT" | docker login -u $DOCKER_USER --password-stdin
+            fi
+      - run:
+          name: Set-up a Docker registry
+          command: |
+            if [[ -f /tmp/images/registry.tar.gz ]]; then
+              echo "Loading saved registry image"
+              docker load < /tmp/images/registry.tar.gz
+            else
+              echo "Pulling registry image from DockerHub"
+              docker pull registry:2
+            fi
+            docker run -d -p 5000:5000 --restart=always --name=registry \
+                -v /tmp/docker:/var/lib/registry registry:2
+      - run:
+          name: Pull images from local registry
+          command: |
+            docker pull localhost:5000/nirodents
+            docker tag localhost:5000/nirodents nipreps/nirodents:latest
+      - run:
+          name: Deploy to Docker Hub
+          no_output_timeout: 40m
+          command: |
+            docker push nipreps/nirodents:latest
+            docker tag nipreps/nirodents nipreps/nirodents:$CIRCLE_TAG
+            docker push nipreps/nirodents:$CIRCLE_TAG
 
   build:
     machine:
@@ -168,9 +212,19 @@ workflows:
             tags:
               only: /.*/
 
+      - deploy_pypi:
+          requires:
+            - test_package
+          filters:
+            branches:
+              ignore: /.*/
+            tags:
+              only: /.*/
+
       - deploy_package:
           requires:
             - test_package
+            - deploy_pypi
           filters:
             branches:
               ignore: /.*/
