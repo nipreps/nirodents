@@ -224,6 +224,7 @@ workflows:
       - deploy_docker:
           requires:
             - test_package
+            - build
             - deploy_pypi
           filters:
             branches:
