@@ -1,3 +1,10 @@
+0.2.7 (May 10, 2022)
+====================
+
+  * main: update docker (#57)
+  * CI: docker deployment (#56)
+  * pin: bump niworkflows to 1.5.x (#55)
+
 0.2.5 (March 15, 2022)
 ======================
 
