@@ -176,10 +176,10 @@ jobs:
           command: |
             mkdir -p /tmp/templateflow /tmp/workdir /tmp/results
             docker run -u $( id -u ) --rm -it -v /tmp/templateflow:/home/nirodents/.cache/templateflow \
-                --entrypoint=/usr/local/miniconda/bin/python nirodents:latest -c \
+                --entrypoint=//opt/conda/bin/python nirodents:latest -c \
                 "import templateflow; templateflow.update(overwrite=False)"
             docker run -u $( id -u ) --rm -it -v /tmp/templateflow:/home/nirodents/.cache/templateflow \
-                --entrypoint=/usr/local/miniconda/bin/python nirodents:latest -c \
+                --entrypoint=/opt/conda/bin/python nirodents:latest -c \
                 "from templateflow import api; api.get('Fischer344')"
       - save_cache:
           key: templateflow-v1-{{ .Branch }}-{{ epoch }}
