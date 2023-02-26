@@ -20,7 +20,7 @@ jobs:
     uses: ./.github/workflows/pythonpackage.yml
 
   deploy:
-
+    needs: [build]
     runs-on: ubuntu-latest
 
     steps:
