@@ -1,8 +1,13 @@
+0.2.7 (May 10, 2022)
+====================
+
+  * MAINT: update docker (#57)
+
 0.2.6 (March 25, 2022)
 ======================
 
-  * CI: docker deployment (#56)
-  * pin: bump niworkflows to 1.5.x (#55)
+  * MAINT: docker deployment (#56)
+  * MAINT: bump niworkflows to 1.5.x (#55)
 
 0.2.5 (March 15, 2022)
 ======================
@@ -11,7 +16,7 @@
   * FIX: input image absolute path (#53)
   * FIX: update brain extraction notebook (#51)
   * FIX: reorder pre-brain extraction massaging
-    PIN: pandas and scipy versions in docker file (#49)
+  * PIN: pandas and scipy versions in docker file (#49)
   * PIN: niworkflows 1.4.x (#48)
   * DOC: update changes.rst (#47)
 
