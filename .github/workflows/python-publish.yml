@@ -16,6 +16,9 @@ permissions:
   contents: read
 
 jobs:
+  build:
+    uses: ./.github/workflows/pythonpackage.yml
+
   deploy:
 
     runs-on: ubuntu-latest
