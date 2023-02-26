@@ -26,9 +26,9 @@ from niworkflows.interfaces.reportlets.registration import (
 )
 
 from templateflow.api import get as get_template
-from ..interfaces import DenoiseImage
+from nirodents.interfaces import DenoiseImage
 
-from .. import __version__
+from nirodents import __version__
 
 
 class DerivativesDataSink(_DDS):
