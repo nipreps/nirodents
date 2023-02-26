@@ -6,7 +6,7 @@ def get_parser():
     """Build parser object."""
     from os import cpu_count
     from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
-    from ..__about__ import __version__
+    from nirodents import __version__
 
     parser = ArgumentParser(
         description="""\
