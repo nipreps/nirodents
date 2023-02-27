@@ -13,3 +13,5 @@ write_to_template = """\
 __version__ = "{version}"
 """
 fallback_version = "0.0"
+version_scheme = "python-simplified-semver"
+
