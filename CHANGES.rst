@@ -1,3 +1,12 @@
+0.2.8 (February 27, 2023)
+=========================
+
+* MAINT: Rotate CircleCI secrets and setup up org-level context by @oesteban in `#58 <https://github.com/nipreps/nirodents/pull/58>`__
+* MAINT: Replace versioneer with setuptools-scm & adapt packaging to PEP517 by @oesteban in `#60 <https://github.com/nipreps/nirodents/pull/60>`__
+* MAINT: Flexibilize dependency pinnings by @oesteban in `#59 <https://github.com/nipreps/nirodents/pull/59>`__
+
+**Full Changelog**: https://github.com/nipreps/nirodents/compare/0.2.7...0.2.8
+
 0.2.7 (May 10, 2022)
 ====================
 
