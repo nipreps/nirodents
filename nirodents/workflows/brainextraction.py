@@ -498,10 +498,12 @@ def _norm_lap(in_file):
 
 
 def _bin_lap(in_file):
-    import numpy as np
-    import nibabel as nib
-    from scipy.stats import norm
     from pathlib import Path
+
+    import nibabel as nb
+    import numpy as np
+    from nipype.utils.filemanip import fname_presuffix
+    from scipy.stats import norm
 
     img = nb.load(in_file)
     data = img.get_fdata()
