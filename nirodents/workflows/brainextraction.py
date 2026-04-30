@@ -136,7 +136,7 @@ def init_rodent_brain_extraction_wf(
     bin_lap_target = pe.Node(niu.Function(function=_bin_lap), name='bin_lap_target')
 
     # Set up initial spatial normalization
-    ants_params = 'testing' if debug else 'precise'
+    ants_params = 'testing' if debug else 'binlap'
     norm = pe.Node(
         Registration(from_file=load_data(f'artsBrainExtraction_{ants_params}_{mri_scheme}.json')),
         name='norm',
