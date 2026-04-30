@@ -490,3 +490,26 @@ def _norm_lap(in_file):
     hdr.set_data_dtype('float32')
     img.__class__(data.astype('float32'), img.affine, hdr).to_filename(out_file)
     return out_file
+
+
+def _bin_lap(in_file):
+    import numpy as np
+    import nibabel as nib
+    from scipy.stats import norm
+    from pathlib import Path
+
+    img = nb.load(in_file)
+    data = img.get_fdata()
+    data_1d = img.ravel()
+
+    lower, upper = np.quantile(data_1d, [0.05, 0.95])
+    mu, sigma = norm.fit(data_1d[np.logical_and(data_1d > lower, data_1d < upper)])
+    data = data > mu + sigma
+
+    out_file = fname_presuffix(
+        Path(in_file).name, suffix='_mask', newpath=str(Path.cwd().absolute())
+    )
+    hdr = img.header.copy()
+    hdr.set_data_dtype('float32')
+    img.__class__(data.astype('float32'), img.affine, hdr).to_filename(out_file)
+    return out_file
