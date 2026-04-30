@@ -197,7 +197,7 @@ def init_rodent_brain_extraction_wf(
         (lap_target, norm_lap_target, [('output_image', 'in_file')]),
         (buffernode, mrg_target, [('hires_target', 'in1')]),
         (norm_lap_target, bin_lap_target, [('out', 'in_file')]),
-        (bin_lap_target, mrg_target, [('out_file', 'in2')]),
+        (bin_lap_target, mrg_target, [('out', 'in2')]),
         # Template massaging
         (clip_tmpl, res_tmpl, [('out_file', 'in_file')]),
         (res_tmpl, tmpl_sigma, [('out_file', 'in_file')]),
@@ -206,7 +206,7 @@ def init_rodent_brain_extraction_wf(
         (lap_tmpl, norm_lap_tmpl, [('output_image', 'in_file')]),
         (norm_lap_tmpl, bin_lap_tmpl, [('out', 'in_file')]),
         (res_tmpl, mrg_tmpl, [('out_file', 'in1')]),
-        (bin_lap_tmpl, mrg_tmpl, [('out_file', 'in2')]),
+        (bin_lap_tmpl, mrg_tmpl, [('out', 'in2')]),
         # Setup inputs to spatial normalization
         (mrg_target, norm, [('out', 'moving_image')]),
         (mrg_tmpl, norm, [('out', 'fixed_image')]),
