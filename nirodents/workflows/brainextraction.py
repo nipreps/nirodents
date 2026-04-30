@@ -506,7 +506,7 @@ def _bin_lap(in_file):
 
     img = nb.load(in_file)
     data = img.get_fdata()
-    data_1d = img.ravel()
+    data_1d = data.ravel()
 
     lower, upper = np.quantile(data_1d, [0.05, 0.95])
     mu, sigma = norm.fit(data_1d[np.logical_and(data_1d > lower, data_1d < upper)])
