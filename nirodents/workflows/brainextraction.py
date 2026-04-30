@@ -126,15 +126,17 @@ def init_rodent_brain_extraction_wf(
         niu.Function(function=_lap_sigma), name='tmpl_sigma', run_without_submitting=True
     )
     norm_lap_tmpl = pe.Node(niu.Function(function=_norm_lap), name='norm_lap_tmpl')
+    bin_lap_tmpl = pe.Node(niu.Function(function=_bin_lap), name='bin_lap_tmpl')
 
     lap_target = pe.Node(ImageMath(operation='Laplacian', copy_header=True), name='lap_target')
     target_sigma = pe.Node(
         niu.Function(function=_lap_sigma), name='target_sigma', run_without_submitting=True
     )
     norm_lap_target = pe.Node(niu.Function(function=_norm_lap), name='norm_lap_target')
+    bin_lap_target = pe.Node(niu.Function(function=_bin_lap), name='bin_lap_target')
 
     # Set up initial spatial normalization
-    ants_params = 'testing' if debug else 'precise'
+    ants_params = 'testing' if debug else 'binlap'
     norm = pe.Node(
         Registration(from_file=load_data(f'artsBrainExtraction_{ants_params}_{mri_scheme}.json')),
         name='norm',
@@ -194,15 +196,17 @@ def init_rodent_brain_extraction_wf(
         (target_sigma, lap_target, [('out', 'op2')]),
         (lap_target, norm_lap_target, [('output_image', 'in_file')]),
         (buffernode, mrg_target, [('hires_target', 'in1')]),
-        (norm_lap_target, mrg_target, [('out', 'in2')]),
+        (norm_lap_target, bin_lap_target, [('out', 'in_file')]),
+        (bin_lap_target, mrg_target, [('out', 'in2')]),
         # Template massaging
         (clip_tmpl, res_tmpl, [('out_file', 'in_file')]),
         (res_tmpl, tmpl_sigma, [('out_file', 'in_file')]),
         (res_tmpl, lap_tmpl, [('out_file', 'op1')]),
         (tmpl_sigma, lap_tmpl, [('out', 'op2')]),
         (lap_tmpl, norm_lap_tmpl, [('output_image', 'in_file')]),
+        (norm_lap_tmpl, bin_lap_tmpl, [('out', 'in_file')]),
         (res_tmpl, mrg_tmpl, [('out_file', 'in1')]),
-        (norm_lap_tmpl, mrg_tmpl, [('out', 'in2')]),
+        (bin_lap_tmpl, mrg_tmpl, [('out', 'in2')]),
         # Setup inputs to spatial normalization
         (mrg_target, norm, [('out', 'moving_image')]),
         (mrg_tmpl, norm, [('out', 'fixed_image')]),
@@ -485,6 +489,31 @@ def _norm_lap(in_file):
 
     out_file = fname_presuffix(
         Path(in_file).name, suffix='_norm', newpath=str(Path.cwd().absolute())
+    )
+    hdr = img.header.copy()
+    hdr.set_data_dtype('float32')
+    img.__class__(data.astype('float32'), img.affine, hdr).to_filename(out_file)
+    return out_file
+
+
+def _bin_lap(in_file):
+    from pathlib import Path
+
+    import nibabel as nb
+    import numpy as np
+    from nipype.utils.filemanip import fname_presuffix
+    from scipy.stats import norm
+
+    img = nb.load(in_file)
+    data = img.get_fdata()
+    data_1d = data.ravel()
+
+    lower, upper = np.quantile(data_1d, [0.05, 0.95])
+    mu, sigma = norm.fit(data_1d[np.logical_and(data_1d > lower, data_1d < upper)])
+    data = data > mu + sigma
+
+    out_file = fname_presuffix(
+        Path(in_file).name, suffix='_mask', newpath=str(Path.cwd().absolute())
     )
     hdr = img.header.copy()
     hdr.set_data_dtype('float32')
