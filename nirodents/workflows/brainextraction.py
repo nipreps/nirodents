@@ -198,7 +198,7 @@ def init_rodent_brain_extraction_wf(
         (buffernode, mrg_target, [('hires_target', 'in1')]),
         (norm_lap_target, mrg_target, [('out', 'in2')]),
         (norm_lap_target, bin_lap_target, [('out', 'in_file')]),
-        (bin_lap_target, mrg_target, [('out_file', 'in1')]),
+        (bin_lap_target, mrg_target, [('out_file', 'in2')]),
         # Template massaging
         (clip_tmpl, res_tmpl, [('out_file', 'in_file')]),
         (res_tmpl, tmpl_sigma, [('out_file', 'in_file')]),
