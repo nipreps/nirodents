@@ -183,7 +183,6 @@ def init_rodent_brain_extraction_wf(
     wf.connect([
         # Target image massaging
         (inputnode, denoise, [(('in_files', _pop), 'input_image')]),
-        (inputnode, init_n4, [(('in_files', _pop), 'args')]),
         (denoise, clip_target, [('output_image', 'in_file')]),
         (clip_target, init_n4, [('out_file', 'input_image')]),
         (init_n4, clip_inu, [('output_image', 'in_file')]),
