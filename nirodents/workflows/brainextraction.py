@@ -155,15 +155,13 @@ def init_rodent_brain_extraction_wf(
     clip_tmpl = pe.Node(IntensityClip(p_min=5, p_max=98), name='clip_tmpl')
     clip_tmpl.inputs.in_file = _pop(tpl_target_path)
 
-    # set INU bspline grid based on voxel size
-    bspline_grid = pe.Node(niu.Function(function=_bspline_grid), name='bspline_grid')
-
     # INU correction of the target image
     init_n4 = pe.Node(
         N4BiasFieldCorrection(
             dimension=3,
             save_bias=False,
             copy_header=True,
+            bspline_fitting_distance=20,
             n_iterations=[50] * (3 - debug),
             convergence_threshold=1e-7,
             shrink_factor=1,
@@ -185,8 +183,7 @@ def init_rodent_brain_extraction_wf(
     wf.connect([
         # Target image massaging
         (inputnode, denoise, [(('in_files', _pop), 'input_image')]),
-        (inputnode, bspline_grid, [(('in_files', _pop), 'in_file')]),
-        (bspline_grid, init_n4, [('out', 'args')]),
+        (inputnode, init_n4, [(('in_files', _pop), 'args')]),
         (denoise, clip_target, [('output_image', 'in_file')]),
         (clip_target, init_n4, [('out_file', 'input_image')]),
         (init_n4, clip_inu, [('output_image', 'in_file')]),
@@ -261,7 +258,6 @@ def init_rodent_brain_extraction_wf(
     # fmt: off
     wf.connect([
         (inputnode, map_brainmask, [(('in_files', _pop), 'reference_image')]),
-        (bspline_grid, final_n4, [('out', 'args')]),
         (clip_target, final_n4, [('out_file', 'input_image')]),
         # Project template's brainmask into subject space
         (norm, map_brainmask, [('reverse_transforms', 'transforms'),
@@ -446,20 +442,6 @@ def _pop(in_files):
     if isinstance(in_files, (list, tuple)):
         return in_files[0]
     return in_files
-
-
-def _bspline_grid(in_file):
-    import math
-
-    import nibabel as nb
-    import numpy as np
-
-    img = nb.load(in_file)
-    zooms = img.header.get_zooms()[:3]
-    extent = (np.array(img.shape[:3]) - 1) * zooms
-    # get mesh resolution ratio
-    retval = [f'{math.ceil(i / extent[np.argmin(extent)])}' for i in extent]
-    return f'-b [{"x".join(retval)}]'
 
 
 def _lap_sigma(in_file):
