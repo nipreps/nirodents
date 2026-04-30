@@ -149,7 +149,7 @@ def init_rodent_brain_extraction_wf(
     wf = pe.Workflow(name)
 
     # truncate target intensity for N4 correction
-    clip_target = pe.Node(IntensityClip(p_min=15, p_max=99.9), name='clip_target')
+    clip_target = pe.Node(IntensityClip(p_min=15, p_max=100), name='clip_target')
 
     # truncate template intensity to match target
     clip_tmpl = pe.Node(IntensityClip(p_min=5, p_max=98), name='clip_tmpl')
